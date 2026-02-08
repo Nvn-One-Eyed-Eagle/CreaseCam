@@ -126,6 +126,7 @@ async function loadPlayersFromCloud(showUI = false) {
         }
 
         const cloudPlayers = [];
+        const playersDBObject = {}; // For localStorage
         let count = 0;
         
         for (const playerData of playersData) {
@@ -174,7 +175,7 @@ async function loadPlayersFromCloud(showUI = false) {
                 }
             }
 
-            cloudPlayers.push({
+            const player = {
                 name: playerData.name,
                 image: playerData.image,
                 matches: playerData.matches || 0,
@@ -183,7 +184,19 @@ async function loadPlayersFromCloud(showUI = false) {
                 balls: playerData.balls || 0,
                 fours: fours,
                 sixes: sixes
-            });
+            };
+
+            cloudPlayers.push(player);
+            
+            // Also prepare for localStorage (using name as key)
+            const playerKey = playerData.name.toLowerCase().replace(/\s+/g, "");
+            playersDBObject[playerKey] = player;
+        }
+
+        // Save to localStorage to replace local data
+        if (cloudPlayers.length > 0) {
+            localStorage.setItem("playersDB", JSON.stringify(playersDBObject));
+            console.log(`✓ Saved ${cloudPlayers.length} players to localStorage`);
         }
 
         console.log(`✓ Loaded ${cloudPlayers.length} players from cloud`);
@@ -233,20 +246,16 @@ async function syncToSupabase(showUI = false) {
         syncMessage.textContent = `Syncing ${playerArray.length} players...`;
     }
 
-    // Clear existing cloud data first
-    try {
-        const { error: deleteError } = await window.supabaseClient
-            .from('players')
-            .delete()
-            .neq('id', 0); // Delete all rows
-        
-        if (deleteError) {
-            console.error("Error clearing cloud data:", deleteError);
-        } else {
-            console.log("✓ Cleared existing cloud data");
-        }
-    } catch (err) {
-        console.error("Error clearing cloud data:", err);
+    // Fetch existing cloud data to merge
+    const { data: existingPlayers } = await window.supabaseClient
+        .from('players')
+        .select('*');
+    
+    const existingPlayersMap = {};
+    if (existingPlayers) {
+        existingPlayers.forEach(p => {
+            existingPlayersMap[p.name] = p;
+        });
     }
 
     let successCount = 0;
@@ -256,79 +265,113 @@ async function syncToSupabase(showUI = false) {
                 syncMessage.textContent = `Uploading ${p.name}...`;
             }
 
-            // A. Upload Profile Image to Storage
-            const imageFileName = `${p.name}_${Date.now()}_profile.jpg`;
-            const imageBlob = await fetch(p.image).then(res => res.blob());
-            
-            const { data: imageData, error: imageError } = await window.supabaseClient.storage
-                .from('player-images')
-                .upload(imageFileName, imageBlob, {
-                    contentType: 'image/jpeg',
-                    upsert: false
-                });
+            const existingPlayer = existingPlayersMap[p.name];
+            let imageUrl = existingPlayer ? existingPlayer.image : null;
 
-            if (imageError) {
-                console.error(`Error uploading image for ${p.name}:`, imageError);
-                continue;
+            // A. Upload Profile Image only if new or changed
+            if (!existingPlayer || p.image !== existingPlayer.image) {
+                const imageFileName = `${p.name}_${Date.now()}_profile.jpg`;
+                const imageBlob = await fetch(p.image).then(res => res.blob());
+                
+                const { data: imageData, error: imageError } = await window.supabaseClient.storage
+                    .from('player-images')
+                    .upload(imageFileName, imageBlob, {
+                        contentType: 'image/jpeg',
+                        upsert: false
+                    });
+
+                if (!imageError) {
+                    const { data: { publicUrl } } = window.supabaseClient.storage
+                        .from('player-images')
+                        .getPublicUrl(imageFileName);
+                    imageUrl = publicUrl;
+                }
             }
 
-            // Get public URL for the image
-            const { data: { publicUrl } } = window.supabaseClient.storage
-                .from('player-images')
-                .getPublicUrl(imageFileName);
+            // B. Merge existing videos with new ones
+            let existingFours = existingPlayer ? (existingPlayer.fours || []) : [];
+            let existingSixes = existingPlayer ? (existingPlayer.sixes || []) : [];
 
-            // B. Prepare the Player Object
-            const cloudPlayer = {
-                name: p.name,
-                image: publicUrl,
-                matches: p.matches || 0,
-                runs: p.runs || 0,
-                highScore: p.highScore || 0,
-                balls: p.balls || 0,
-                fours: [],
-                sixes: []
-            };
-
-            // C. Sync Videos (Fours and Sixes)
+            // C. Upload new videos (Fours and Sixes)
             for (let type of ['fours', 'sixes']) {
                 for (let vid of (p[type] || [])) {
                     const base64Vid = await VideoDB.get(vid.video);
                     if (base64Vid) {
-                        const videoFileName = `${p.name}_${type}_${Date.now()}_${Math.random().toString(36).slice(2, 9)}.mp4`;
-                        const videoBlob = await fetch(base64Vid).then(res => res.blob());
+                        // Check if this video already exists (by over.ball combination)
+                        const existingVideos = type === 'fours' ? existingFours : existingSixes;
+                        const alreadyExists = existingVideos.some(v => v.over === vid.over && v.ball === vid.ball);
                         
-                        const { data: videoData, error: videoError } = await window.supabaseClient.storage
-                            .from('player-videos')
-                            .upload(videoFileName, videoBlob, {
-                                contentType: 'video/mp4',
-                                upsert: false
-                            });
-
-                        if (!videoError) {
-                            const { data: { publicUrl: videoUrl } } = window.supabaseClient.storage
-                                .from('player-videos')
-                                .getPublicUrl(videoFileName);
+                        if (!alreadyExists) {
+                            const videoFileName = `${p.name}_${type}_${Date.now()}_${Math.random().toString(36).slice(2, 9)}.mp4`;
+                            const videoBlob = await fetch(base64Vid).then(res => res.blob());
                             
-                            cloudPlayer[type].push({
-                                over: vid.over,
-                                ball: vid.ball,
-                                videoUrl: videoUrl
-                            });
+                            const { data: videoData, error: videoError } = await window.supabaseClient.storage
+                                .from('player-videos')
+                                .upload(videoFileName, videoBlob, {
+                                    contentType: 'video/mp4',
+                                    upsert: false
+                                });
+
+                            if (!videoError) {
+                                const { data: { publicUrl: videoUrl } } = window.supabaseClient.storage
+                                    .from('player-videos')
+                                    .getPublicUrl(videoFileName);
+                                
+                                const newVideo = {
+                                    over: vid.over,
+                                    ball: vid.ball,
+                                    videoUrl: videoUrl
+                                };
+                                
+                                if (type === 'fours') {
+                                    existingFours.push(newVideo);
+                                } else {
+                                    existingSixes.push(newVideo);
+                                }
+                            }
                         }
                     }
                 }
             }
 
-            // D. Save to Supabase Database
-            const { error: insertError } = await window.supabaseClient
-                .from('players')
-                .insert([cloudPlayer]);
+            // D. Prepare the Player Object with merged data
+            const cloudPlayer = {
+                name: p.name,
+                image: imageUrl,
+                matches: p.matches || 0,
+                runs: p.runs || 0,
+                highScore: p.highScore || 0,
+                balls: p.balls || 0,
+                fours: existingFours,
+                sixes: existingSixes
+            };
 
-            if (insertError) {
-                console.error(`✗ Failed to sync ${p.name}:`, insertError);
+            // E. Upsert (Insert or Update) to Supabase Database
+            if (existingPlayer) {
+                // Update existing player
+                const { error: updateError } = await window.supabaseClient
+                    .from('players')
+                    .update(cloudPlayer)
+                    .eq('id', existingPlayer.id);
+
+                if (updateError) {
+                    console.error(`✗ Failed to update ${p.name}:`, updateError);
+                } else {
+                    console.log(`✓ Updated ${p.name} successfully!`);
+                    successCount++;
+                }
             } else {
-                console.log(`✓ Synced ${p.name} successfully!`);
-                successCount++;
+                // Insert new player
+                const { error: insertError } = await window.supabaseClient
+                    .from('players')
+                    .insert([cloudPlayer]);
+
+                if (insertError) {
+                    console.error(`✗ Failed to insert ${p.name}:`, insertError);
+                } else {
+                    console.log(`✓ Inserted ${p.name} successfully!`);
+                    successCount++;
+                }
             }
 
         } catch (err) {
@@ -380,6 +423,72 @@ function loadPlayers() {
         ...p,
         average: p.balls ? (p.runs / p.balls * 6).toFixed(2) : 0
     }));
+}
+
+function mergeMatchDataIntoPlayersDB() {
+    const matchData = JSON.parse(localStorage.getItem("matchData")) || {};
+    const playersDB = JSON.parse(localStorage.getItem("playersDB")) || {};
+    
+    let hasUpdates = false;
+    
+    // Iterate through match data and merge into playersDB
+    for (let playerKey in matchData) {
+        if (playerKey === 'overs' || playerKey === 'totalballs' || playerKey === 'totalruns' || playerKey === 'wicket') {
+            continue; // Skip match metadata
+        }
+        
+        const matchPlayerData = matchData[playerKey];
+        
+        // Find the player in playersDB (case-insensitive name matching)
+        let foundPlayer = null;
+        for (let dbKey in playersDB) {
+            if (dbKey.toLowerCase() === playerKey.toLowerCase()) {
+                foundPlayer = playersDB[dbKey];
+                break;
+            }
+        }
+        
+        if (foundPlayer && matchPlayerData) {
+            // Update stats
+            if (matchPlayerData.runs > 0 || matchPlayerData.balls > 0) {
+                foundPlayer.runs = (foundPlayer.runs || 0) + (matchPlayerData.runs || 0);
+                foundPlayer.balls = (foundPlayer.balls || 0) + (matchPlayerData.balls || 0);
+                foundPlayer.matches = (foundPlayer.matches || 0) + 1;
+                
+                // Update high score if current score is higher
+                if (matchPlayerData.runs > (foundPlayer.highScore || 0)) {
+                    foundPlayer.highScore = matchPlayerData.runs;
+                }
+                
+                // Merge fours videos
+                if (matchPlayerData.fours && matchPlayerData.fours.length > 0) {
+                    foundPlayer.fours = foundPlayer.fours || [];
+                    foundPlayer.fours.push(...matchPlayerData.fours);
+                }
+                
+                // Merge sixes videos
+                if (matchPlayerData.sixes && matchPlayerData.sixes.length > 0) {
+                    foundPlayer.sixes = foundPlayer.sixes || [];
+                    foundPlayer.sixes.push(...matchPlayerData.sixes);
+                }
+                
+                hasUpdates = true;
+                console.log(`✓ Merged match data for ${foundPlayer.name}`);
+            }
+        }
+    }
+    
+    // Save updated playersDB back to localStorage
+    if (hasUpdates) {
+        localStorage.setItem("playersDB", JSON.stringify(playersDB));
+        console.log("✓ Match data merged into playersDB");
+        
+        // Clear matchData after successful merge
+        localStorage.removeItem("matchData");
+        console.log("✓ Match data cleared");
+    }
+    
+    return hasUpdates;
 }
 
 let players = loadPlayers();
@@ -676,7 +785,14 @@ document.getElementById('send-online-btn').addEventListener('click', async () =>
         return;
     }
     
-    if (!confirm('This will upload all local data to Supabase. Continue?')) {
+    // Password protection
+    const password = prompt('Enter password to sync data online:');
+    if (password !== 'zen43') {
+        alert('❌ Incorrect password! Data sync cancelled.');
+        return;
+    }
+    
+    if (!confirm('This will upload and merge all local data to Supabase. Continue?')) {
         return;
     }
     
@@ -689,14 +805,25 @@ document.getElementById('pull-data-btn').addEventListener('click', async () => {
         return;
     }
     
-    if (!confirm('This will download all data from Supabase and replace your current view. Continue?')) {
+    if (!confirm('⚠️ WARNING: This will replace ALL your local data with data from Supabase cloud.\n\nYour current local data will be lost!\n\nContinue?')) {
         return;
     }
     
+    // Clear IndexedDB videos before downloading new ones
+    try {
+        await VideoDB.clear();
+        console.log("✓ Cleared local IndexedDB videos");
+    } catch (err) {
+        console.error("Error clearing IndexedDB:", err);
+    }
+    
+    // Download from cloud and replace local data
     players = await loadPlayersFromCloud(true);
     currentCard = 0;
     resetTimer();
     await renderUI();
+    
+    console.log("✓ Local data replaced with cloud data");
 });
 
 /* ==========================================================================
@@ -726,6 +853,12 @@ document.querySelector("#btn").addEventListener("click", () => {
 window.addEventListener('DOMContentLoaded', async () => {
     console.log("🚀 App initializing...");
     
+    // Merge match data if returning from a match
+    const hasMatchUpdates = mergeMatchDataIntoPlayersDB();
+    if (hasMatchUpdates) {
+        console.log("📊 Match data merged successfully");
+    }
+    
     // Wait for Supabase to be ready
     let attempts = 0;
     while (!window.supabaseReady && attempts < 50) {
@@ -735,29 +868,13 @@ window.addEventListener('DOMContentLoaded', async () => {
 
     if (!window.supabaseReady) {
         console.error("Supabase failed to initialize");
-        players = loadPlayers();
-        renderUI();
-        startTimer();
-        return;
-    }
-
-    console.log("✓ Supabase initialized");
-
-    // Try to load from Cloud first
-    const cloudPlayers = await loadPlayersFromCloud();
-    
-    // If Cloud is empty but Local has data, just use local
-    if (cloudPlayers.length === 0) {
-        const localData = localStorage.getItem("playersDB");
-        if (localData && Object.keys(JSON.parse(localData)).length > 0) {
-            console.log("📦 Using local data (cloud is empty)");
-            players = loadPlayers();
-        } else {
-            players = loadPlayers();
-        }
     } else {
-        players = cloudPlayers;
+        console.log("✓ Supabase initialized");
     }
+
+    // ALWAYS load from local storage by default
+    console.log("📦 Loading from local storage");
+    players = loadPlayers();
 
     renderUI();
     startTimer();
