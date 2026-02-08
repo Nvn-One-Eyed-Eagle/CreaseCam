@@ -1,4 +1,3 @@
-
 /* ==========================================================================
    VideoDB — IndexedDB wrapper (inlined)
    ========================================================================== */
@@ -70,6 +69,281 @@ const VideoDB = (() => {
 
     return { save, get, remove, clear };
 })();
+
+
+/* ==========================================================================
+   SUPABASE CLOUD FUNCTIONS
+   ========================================================================== */
+
+async function loadPlayersFromCloud(showUI = false) {
+    const syncStatus = document.getElementById('sync-status');
+    const syncMessage = document.getElementById('sync-message');
+    
+    if (showUI) {
+        syncStatus.classList.remove('hidden');
+        syncMessage.textContent = 'Connecting to cloud...';
+    }
+
+    try {
+        if (!window.supabaseClient) {
+            console.log("Supabase not ready, loading from local storage");
+            if (showUI) {
+                syncMessage.textContent = 'Supabase not ready';
+                setTimeout(() => syncStatus.classList.add('hidden'), 2000);
+            }
+            return loadPlayers();
+        }
+
+        if (showUI) {
+            syncMessage.textContent = 'Fetching player data...';
+        }
+
+        // Fetch all players from Supabase
+        const { data: playersData, error } = await window.supabaseClient
+            .from('players')
+            .select('*');
+        
+        if (error) {
+            console.error("Error fetching players:", error);
+            if (showUI) {
+                syncMessage.textContent = 'Error loading cloud data';
+                setTimeout(() => syncStatus.classList.add('hidden'), 2000);
+            }
+            return loadPlayers();
+        }
+
+        if (!playersData || playersData.length === 0) {
+            console.log("No players in cloud, loading from local storage");
+            if (showUI) {
+                syncMessage.textContent = 'No cloud data found';
+                setTimeout(() => syncStatus.classList.add('hidden'), 2000);
+            }
+            return loadPlayers();
+        }
+
+        if (showUI) {
+            syncMessage.textContent = `Downloading ${playersData.length} players...`;
+        }
+
+        const cloudPlayers = [];
+        let count = 0;
+        
+        for (const playerData of playersData) {
+            count++;
+            
+            if (showUI) {
+                syncMessage.textContent = `Downloading ${playerData.name} (${count}/${playersData.length})...`;
+            }
+            
+            // Download videos and store in IndexedDB
+            const fours = [];
+            for (const four of (playerData.fours || [])) {
+                if (four.videoUrl) {
+                    try {
+                        const response = await fetch(four.videoUrl);
+                        const blob = await response.blob();
+                        const base64 = await new Promise((resolve) => {
+                            const reader = new FileReader();
+                            reader.onloadend = () => resolve(reader.result);
+                            reader.readAsDataURL(blob);
+                        });
+                        const videoId = await VideoDB.save(base64);
+                        fours.push({ over: four.over, ball: four.ball, video: videoId });
+                    } catch (err) {
+                        console.error("Error downloading four video:", err);
+                    }
+                }
+            }
+
+            const sixes = [];
+            for (const six of (playerData.sixes || [])) {
+                if (six.videoUrl) {
+                    try {
+                        const response = await fetch(six.videoUrl);
+                        const blob = await response.blob();
+                        const base64 = await new Promise((resolve) => {
+                            const reader = new FileReader();
+                            reader.onloadend = () => resolve(reader.result);
+                            reader.readAsDataURL(blob);
+                        });
+                        const videoId = await VideoDB.save(base64);
+                        sixes.push({ over: six.over, ball: six.ball, video: videoId });
+                    } catch (err) {
+                        console.error("Error downloading six video:", err);
+                    }
+                }
+            }
+
+            cloudPlayers.push({
+                name: playerData.name,
+                image: playerData.image,
+                matches: playerData.matches || 0,
+                runs: playerData.runs || 0,
+                highScore: playerData.highScore || 0,
+                balls: playerData.balls || 0,
+                fours: fours,
+                sixes: sixes
+            });
+        }
+
+        console.log(`✓ Loaded ${cloudPlayers.length} players from cloud`);
+        
+        if (showUI) {
+            syncMessage.textContent = `✓ Downloaded ${cloudPlayers.length} players!`;
+            setTimeout(() => syncStatus.classList.add('hidden'), 3000);
+        }
+        
+        return cloudPlayers;
+
+    } catch (err) {
+        console.error("Error loading from cloud:", err);
+        if (showUI) {
+            syncMessage.textContent = '✗ Download failed';
+            setTimeout(() => syncStatus.classList.add('hidden'), 2000);
+        }
+        return loadPlayers();
+    }
+}
+
+async function syncToSupabase(showUI = false) {
+    const syncStatus = document.getElementById('sync-status');
+    const syncMessage = document.getElementById('sync-message');
+    
+    if (showUI) {
+        syncStatus.classList.remove('hidden');
+        syncMessage.textContent = 'Preparing to sync...';
+    }
+
+    // 1. Get local data
+    const localPlayers = JSON.parse(localStorage.getItem("playersDB")) || {};
+    const playerArray = Object.values(localPlayers);
+
+    if (playerArray.length === 0) {
+        console.log("No local players to sync");
+        if (showUI) {
+            syncMessage.textContent = 'No local data to sync';
+            setTimeout(() => syncStatus.classList.add('hidden'), 2000);
+        }
+        return;
+    }
+
+    console.log(`Starting sync to Supabase for ${playerArray.length} players...`);
+    
+    if (showUI) {
+        syncMessage.textContent = `Syncing ${playerArray.length} players...`;
+    }
+
+    // Clear existing cloud data first
+    try {
+        const { error: deleteError } = await window.supabaseClient
+            .from('players')
+            .delete()
+            .neq('id', 0); // Delete all rows
+        
+        if (deleteError) {
+            console.error("Error clearing cloud data:", deleteError);
+        } else {
+            console.log("✓ Cleared existing cloud data");
+        }
+    } catch (err) {
+        console.error("Error clearing cloud data:", err);
+    }
+
+    let successCount = 0;
+    for (let p of playerArray) {
+        try {
+            if (showUI) {
+                syncMessage.textContent = `Uploading ${p.name}...`;
+            }
+
+            // A. Upload Profile Image to Storage
+            const imageFileName = `${p.name}_${Date.now()}_profile.jpg`;
+            const imageBlob = await fetch(p.image).then(res => res.blob());
+            
+            const { data: imageData, error: imageError } = await window.supabaseClient.storage
+                .from('player-images')
+                .upload(imageFileName, imageBlob, {
+                    contentType: 'image/jpeg',
+                    upsert: false
+                });
+
+            if (imageError) {
+                console.error(`Error uploading image for ${p.name}:`, imageError);
+                continue;
+            }
+
+            // Get public URL for the image
+            const { data: { publicUrl } } = window.supabaseClient.storage
+                .from('player-images')
+                .getPublicUrl(imageFileName);
+
+            // B. Prepare the Player Object
+            const cloudPlayer = {
+                name: p.name,
+                image: publicUrl,
+                matches: p.matches || 0,
+                runs: p.runs || 0,
+                highScore: p.highScore || 0,
+                balls: p.balls || 0,
+                fours: [],
+                sixes: []
+            };
+
+            // C. Sync Videos (Fours and Sixes)
+            for (let type of ['fours', 'sixes']) {
+                for (let vid of (p[type] || [])) {
+                    const base64Vid = await VideoDB.get(vid.video);
+                    if (base64Vid) {
+                        const videoFileName = `${p.name}_${type}_${Date.now()}_${Math.random().toString(36).slice(2, 9)}.mp4`;
+                        const videoBlob = await fetch(base64Vid).then(res => res.blob());
+                        
+                        const { data: videoData, error: videoError } = await window.supabaseClient.storage
+                            .from('player-videos')
+                            .upload(videoFileName, videoBlob, {
+                                contentType: 'video/mp4',
+                                upsert: false
+                            });
+
+                        if (!videoError) {
+                            const { data: { publicUrl: videoUrl } } = window.supabaseClient.storage
+                                .from('player-videos')
+                                .getPublicUrl(videoFileName);
+                            
+                            cloudPlayer[type].push({
+                                over: vid.over,
+                                ball: vid.ball,
+                                videoUrl: videoUrl
+                            });
+                        }
+                    }
+                }
+            }
+
+            // D. Save to Supabase Database
+            const { error: insertError } = await window.supabaseClient
+                .from('players')
+                .insert([cloudPlayer]);
+
+            if (insertError) {
+                console.error(`✗ Failed to sync ${p.name}:`, insertError);
+            } else {
+                console.log(`✓ Synced ${p.name} successfully!`);
+                successCount++;
+            }
+
+        } catch (err) {
+            console.error(`✗ Failed to sync ${p.name}:`, err);
+        }
+    }
+
+    console.log("✓ Sync Complete! Check your Supabase Dashboard.");
+    
+    if (showUI) {
+        syncMessage.textContent = `✓ Synced ${successCount}/${playerArray.length} players!`;
+        setTimeout(() => syncStatus.classList.add('hidden'), 3000);
+    }
+}
+
 
 /* ==========================================================================
    STATE
@@ -394,6 +668,38 @@ submitAddBtn.addEventListener('click', () => {
 });
 
 /* ==========================================================================
+   SYNC BUTTON HANDLERS
+   ========================================================================== */
+document.getElementById('send-online-btn').addEventListener('click', async () => {
+    if (!window.supabaseClient) {
+        alert('Supabase is not initialized yet. Please check your configuration.');
+        return;
+    }
+    
+    if (!confirm('This will upload all local data to Supabase. Continue?')) {
+        return;
+    }
+    
+    await syncToSupabase(true);
+});
+
+document.getElementById('pull-data-btn').addEventListener('click', async () => {
+    if (!window.supabaseClient) {
+        alert('Supabase is not initialized yet. Please check your configuration.');
+        return;
+    }
+    
+    if (!confirm('This will download all data from Supabase and replace your current view. Continue?')) {
+        return;
+    }
+    
+    players = await loadPlayersFromCloud(true);
+    currentCard = 0;
+    resetTimer();
+    await renderUI();
+});
+
+/* ==========================================================================
    NAV BUTTONS & TIMER
    ========================================================================== */
 document.getElementById('next-btn').addEventListener('click', () => { nextCard(); resetTimer(); });
@@ -417,8 +723,42 @@ document.querySelector("#btn").addEventListener("click", () => {
     window.location.href = "team.html";
 });
 
-window.addEventListener('DOMContentLoaded', () => {
-    players = loadPlayers();
+window.addEventListener('DOMContentLoaded', async () => {
+    console.log("🚀 App initializing...");
+    
+    // Wait for Supabase to be ready
+    let attempts = 0;
+    while (!window.supabaseReady && attempts < 50) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        attempts++;
+    }
+
+    if (!window.supabaseReady) {
+        console.error("Supabase failed to initialize");
+        players = loadPlayers();
+        renderUI();
+        startTimer();
+        return;
+    }
+
+    console.log("✓ Supabase initialized");
+
+    // Try to load from Cloud first
+    const cloudPlayers = await loadPlayersFromCloud();
+    
+    // If Cloud is empty but Local has data, just use local
+    if (cloudPlayers.length === 0) {
+        const localData = localStorage.getItem("playersDB");
+        if (localData && Object.keys(JSON.parse(localData)).length > 0) {
+            console.log("📦 Using local data (cloud is empty)");
+            players = loadPlayers();
+        } else {
+            players = loadPlayers();
+        }
+    } else {
+        players = cloudPlayers;
+    }
+
     renderUI();
     startTimer();
 });
