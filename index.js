@@ -86,12 +86,12 @@ async function loadPlayersFromCloud(showUI = false) {
 
     try {
         if (!window.supabaseClient) {
-            console.log("Supabase not ready, loading from local storage");
+            console.log("Supabase not ready");
             if (showUI) {
                 syncMessage.textContent = 'Supabase not ready';
                 setTimeout(() => syncStatus.classList.add('hidden'), 2000);
             }
-            return loadPlayers();
+            return [];
         }
 
         if (showUI) {
@@ -109,16 +109,16 @@ async function loadPlayersFromCloud(showUI = false) {
                 syncMessage.textContent = 'Error loading cloud data';
                 setTimeout(() => syncStatus.classList.add('hidden'), 2000);
             }
-            return loadPlayers();
+            return [];
         }
 
         if (!playersData || playersData.length === 0) {
-            console.log("No players in cloud, loading from local storage");
+            console.log("No players in cloud");
             if (showUI) {
                 syncMessage.textContent = 'No cloud data found';
                 setTimeout(() => syncStatus.classList.add('hidden'), 2000);
             }
-            return loadPlayers();
+            return [];
         }
 
         if (showUI) {
@@ -214,7 +214,7 @@ async function loadPlayersFromCloud(showUI = false) {
             syncMessage.textContent = '✗ Download failed';
             setTimeout(() => syncStatus.classList.add('hidden'), 2000);
         }
-        return loadPlayers();
+        return [];
     }
 }
 
@@ -421,7 +421,7 @@ function loadPlayers() {
     const db = JSON.parse(localStorage.getItem("playersDB")) || {};
     return Object.values(db).map(p => ({
         ...p,
-        average: p.balls ? (p.runs / p.balls * 6).toFixed(2) : 0
+        strikeRate: p.balls ? ((p.runs / p.balls) * 100).toFixed(2) : '0.00'
     }));
 }
 
@@ -491,7 +491,7 @@ function mergeMatchDataIntoPlayersDB() {
     return hasUpdates;
 }
 
-let players = loadPlayers();
+let players = [];
 
 /* ==========================================================================
    RENDER
@@ -511,6 +511,21 @@ function updatePlayerCount() {
 function renderCards() {
     const container = document.getElementById('cards-container');
     container.innerHTML = '';
+
+    if (players.length === 0) {
+        // Show empty state
+        container.innerHTML = `
+            <div class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-center">
+                <div class="text-white/40 mb-2">
+                    <i data-lucide="users" class="w-16 h-16 mx-auto mb-3"></i>
+                    <p class="text-lg font-semibold">No Players Yet</p>
+                    <p class="text-sm mt-1">Add players or pull data from cloud</p>
+                </div>
+            </div>
+        `;
+        lucide.createIcons();
+        return;
+    }
 
     players.forEach((player, index) => {
         const offset = (index - currentCard + players.length) % players.length;
@@ -552,8 +567,8 @@ function renderCards() {
                                 <div class="text-xs text-white/60 font-medium">High Score</div>
                             </div>
                             <div class="stat-box rounded-lg p-2.5 text-center">
-                                <div class="text-lg font-bold text-purple-400">${player.average}</div>
-                                <div class="text-xs text-white/60 font-medium">Average</div>
+                                <div class="text-lg font-bold text-purple-400">${player.strikeRate}</div>
+                                <div class="text-xs text-white/60 font-medium">Strike Rate</div>
                             </div>
                         </div>
                     </div>
@@ -586,6 +601,8 @@ function renderDots() {
     const container = document.getElementById('dots-container');
     container.innerHTML = '';
 
+    if (players.length === 0) return;
+
     players.forEach((_, index) => {
         const isActive = index === currentCard;
         const widthClass = isActive ? 'w-8 bg-emerald-400' : 'w-3 bg-white/30 hover:bg-white/50';
@@ -602,9 +619,21 @@ function renderDots() {
 }
 
 async function renderVideos() {
-    const currentPlayer = players[currentCard];
     const videoGrid = document.getElementById('video-grid');
     videoGrid.innerHTML = '';
+
+    if (players.length === 0) {
+        videoGrid.innerHTML = `
+            <div class="col-span-2 text-center text-white/40 py-8">
+                <i data-lucide="video-off" class="w-12 h-12 mx-auto mb-2"></i>
+                <p class="text-sm">No videos yet</p>
+            </div>
+        `;
+        lucide.createIcons();
+        return;
+    }
+
+    const currentPlayer = players[currentCard];
 
     // Update tab button styles
     const tabFours = document.getElementById('tab-fours');
@@ -626,6 +655,17 @@ async function renderVideos() {
         if (src) resolved.push({ src, over: v.over, ball: v.ball });
     }
 
+    if (resolved.length === 0) {
+        videoGrid.innerHTML = `
+            <div class="col-span-2 text-center text-white/40 py-8">
+                <i data-lucide="video-off" class="w-12 h-12 mx-auto mb-2"></i>
+                <p class="text-sm">No ${activeTab} videos yet</p>
+            </div>
+        `;
+        lucide.createIcons();
+        return;
+    }
+
     resolved.forEach(item => {
         const card = document.createElement("div");
         card.className = "bg-black/50 border border-white/10 rounded-lg p-2 cursor-pointer video-hover";
@@ -644,11 +684,13 @@ async function renderVideos() {
    NAVIGATION
    ========================================================================== */
 function nextCard() {
+    if (players.length === 0) return;
     currentCard = (currentCard + 1) % players.length;
     renderUI();
 }
 
 function prevCard() {
+    if (players.length === 0) return;
     currentCard = (currentCard - 1 + players.length) % players.length;
     renderUI();
 }
@@ -760,13 +802,19 @@ submitAddBtn.addEventListener('click', () => {
         image: capturedImage,
         matches: 0,
         runs: 0,
+        balls: 0,
         highScore: 0,
-        average: 0,
         fours: [],
         sixes: []
     };
 
     players.push(newPlayer);
+
+    // Save to localStorage
+    const playersDB = JSON.parse(localStorage.getItem("playersDB")) || {};
+    const playerKey = name.toLowerCase().replace(/\s+/g, "");
+    playersDB[playerKey] = newPlayer;
+    localStorage.setItem("playersDB", JSON.stringify(playersDB));
 
     addPlayerForm.classList.add('hidden');
     showAddBtn.classList.remove('hidden');
@@ -832,8 +880,15 @@ document.getElementById('pull-data-btn').addEventListener('click', async () => {
 document.getElementById('next-btn').addEventListener('click', () => { nextCard(); resetTimer(); });
 document.getElementById('prev-btn').addEventListener('click', () => { prevCard(); resetTimer(); });
 
-function startTimer()  { autoPlayTimer = setInterval(nextCard, 4000); }
-function resetTimer()  { clearInterval(autoPlayTimer); startTimer(); }
+function startTimer()  { 
+    if (players.length > 0) {
+        autoPlayTimer = setInterval(nextCard, 4000); 
+    }
+}
+function resetTimer()  { 
+    clearInterval(autoPlayTimer); 
+    startTimer(); 
+}
 
 /* ==========================================================================
    BOOT
@@ -846,6 +901,10 @@ const initialMatchState = {
 };
 
 document.querySelector("#btn").addEventListener("click", () => {
+    if (players.length === 0) {
+        alert('Please add players or pull data from cloud before starting a match!');
+        return;
+    }
     senddata();
     window.location.href = "team.html";
 });
@@ -859,7 +918,7 @@ window.addEventListener('DOMContentLoaded', async () => {
         console.log("📊 Match data merged successfully");
     }
     
-    // Wait for Supabase to be ready
+    // Wait for Supabase to be ready (but don't require it)
     let attempts = 0;
     while (!window.supabaseReady && attempts < 50) {
         await new Promise(resolve => setTimeout(resolve, 100));
@@ -867,14 +926,16 @@ window.addEventListener('DOMContentLoaded', async () => {
     }
 
     if (!window.supabaseReady) {
-        console.error("Supabase failed to initialize");
+        console.log("⚠️ Supabase not initialized - cloud sync features disabled");
     } else {
-        console.log("✓ Supabase initialized");
+        console.log("✓ Supabase initialized - cloud sync available");
     }
 
-    // ALWAYS load from local storage by default
+    // ALWAYS load from local storage by default (never auto-pull from cloud)
     console.log("📦 Loading from local storage");
     players = loadPlayers();
+    
+    console.log(`✓ Loaded ${players.length} players from local storage`);
 
     renderUI();
     startTimer();
