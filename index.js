@@ -500,12 +500,95 @@ async function renderUI() {
     renderCards();
     renderDots();
     await renderVideos();
+    renderLeaderboard();
     updatePlayerCount();
     lucide.createIcons();
 }
 
 function updatePlayerCount() {
     document.getElementById('player-count').textContent = players.length;
+}
+
+function renderLeaderboard() {
+    const container = document.getElementById('leaderboard-list');
+    container.innerHTML = '';
+
+    if (players.length === 0) {
+        container.innerHTML = `
+            <div class="text-center text-white/40 py-8">
+                <i data-lucide="bar-chart-3" class="w-12 h-12 mx-auto mb-2"></i>
+                <p class="text-sm">No rankings yet</p>
+            </div>
+        `;
+        lucide.createIcons();
+        return;
+    }
+
+    // Calculate composite score for each player
+    // Formula: (Strike Rate * 0.4) + (High Score * 0.3) + (Runs/Ball * 30) + (Matches * 2)
+    const rankedPlayers = players.map(player => {
+        const strikeRate = player.balls > 0 ? ((player.runs / player.balls) * 100) : 0;
+        const runsPerBall = player.balls > 0 ? (player.runs / player.balls) : 0;
+        const compositeScore = (
+            (strikeRate * 0.4) + 
+            (player.highScore * 0.3) + 
+            (runsPerBall * 30) + 
+            (player.matches * 2)
+        );
+        
+        return {
+            ...player,
+            strikeRate: strikeRate.toFixed(2),
+            compositeScore: compositeScore.toFixed(2)
+        };
+    }).sort((a, b) => b.compositeScore - a.compositeScore);
+
+    rankedPlayers.forEach((player, index) => {
+        const rank = index + 1;
+        let rankColor = 'text-white/60';
+        let rankBg = 'bg-white/5';
+        let rankIcon = 'medal';
+        
+        if (rank === 1) {
+            rankColor = 'text-yellow-400';
+            rankBg = 'bg-yellow-500/10';
+            rankIcon = 'crown';
+        } else if (rank === 2) {
+            rankColor = 'text-gray-300';
+            rankBg = 'bg-gray-500/10';
+        } else if (rank === 3) {
+            rankColor = 'text-orange-400';
+            rankBg = 'bg-orange-500/10';
+        }
+
+        const runsPerBall = player.balls > 0 ? (player.runs / player.balls).toFixed(2) : '0.00';
+
+        container.innerHTML += `
+            <div class="player-card-bg rounded-xl p-4 flex items-center gap-4 hover:bg-white/5 transition-all">
+                <div class="${rankBg} ${rankColor} w-12 h-12 rounded-lg flex items-center justify-center font-black text-xl">
+                    ${rank === 1 ? `<i data-lucide="${rankIcon}" class="w-6 h-6"></i>` : rank}
+                </div>
+                
+                <div class="w-12 h-12 rounded-lg overflow-hidden border-2 border-white/10">
+                    <img src="${player.image}" alt="${player.name}" class="w-full h-full object-cover">
+                </div>
+                
+                <div class="flex-1 min-w-0">
+                    <h4 class="text-white font-bold text-sm truncate">${player.name}</h4>
+                    <div class="flex gap-3 mt-1">
+                        <span class="text-xs text-emerald-400 font-medium">SR: ${player.strikeRate}</span>
+                        <span class="text-xs text-blue-400 font-medium">HS: ${player.highScore}</span>
+                        <span class="text-xs text-purple-400 font-medium">R/B: ${runsPerBall}</span>
+                    </div>
+                </div>
+                
+                <div class="text-right">
+                    <div class="text-xs text-white/40 font-medium">Score</div>
+                    <div class="text-lg font-bold text-emerald-400">${player.compositeScore}</div>
+                </div>
+            </div>
+        `;
+    });
 }
 
 function renderCards() {
@@ -541,6 +624,12 @@ function renderCards() {
         else if (isPrev)   classes += 'z-20 scale-90 opacity-60 -translate-x-8 translate-y-4';
         else               classes += 'z-10 scale-75 opacity-0';
 
+        // Display runs/balls format like "20/6"
+        const runsAndBalls = `${player.runs || 0}/${player.balls || 0}`;
+        
+        // Ensure strike rate is properly calculated
+        const strikeRate = player.balls > 0 ? ((player.runs / player.balls) * 100).toFixed(2) : '0.00';
+
         container.innerHTML += `
             <div class="${classes}" style="width: 90%; max-width: 320px;">
                 <div class="player-card-bg rounded-2xl shadow-2xl overflow-hidden">
@@ -559,15 +648,15 @@ function renderCards() {
                                 <div class="text-xs text-white/60 font-medium">Matches</div>
                             </div>
                             <div class="stat-box rounded-lg p-2.5 text-center">
-                                <div class="text-lg font-bold text-blue-400">${player.runs}</div>
-                                <div class="text-xs text-white/60 font-medium">Runs</div>
+                                <div class="text-lg font-bold text-blue-400">${runsAndBalls}</div>
+                                <div class="text-xs text-white/60 font-medium">Runs/Balls</div>
                             </div>
                             <div class="stat-box rounded-lg p-2.5 text-center">
                                 <div class="text-lg font-bold text-amber-400">${player.highScore}</div>
                                 <div class="text-xs text-white/60 font-medium">High Score</div>
                             </div>
                             <div class="stat-box rounded-lg p-2.5 text-center">
-                                <div class="text-lg font-bold text-purple-400">${player.strikeRate}</div>
+                                <div class="text-lg font-bold text-purple-400">${strikeRate}</div>
                                 <div class="text-xs text-white/60 font-medium">Strike Rate</div>
                             </div>
                         </div>
@@ -850,6 +939,13 @@ document.getElementById('send-online-btn').addEventListener('click', async () =>
 document.getElementById('pull-data-btn').addEventListener('click', async () => {
     if (!window.supabaseClient) {
         alert('Supabase is not initialized yet. Please check your configuration.');
+        return;
+    }
+    
+    // Password protection
+    const password = prompt('Enter password to pull data from cloud:');
+    if (password !== 'zen83') {
+        alert('❌ Incorrect password! Data pull cancelled.');
         return;
     }
     
