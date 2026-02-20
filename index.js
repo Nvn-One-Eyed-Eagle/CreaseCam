@@ -98,7 +98,6 @@ async function loadPlayersFromCloud(showUI = false) {
             syncMessage.textContent = 'Fetching player data...';
         }
 
-        // Fetch all players from Supabase
         const { data: playersData, error } = await window.supabaseClient
             .from('players')
             .select('*');
@@ -126,7 +125,7 @@ async function loadPlayersFromCloud(showUI = false) {
         }
 
         const cloudPlayers = [];
-        const playersDBObject = {}; // For localStorage
+        const playersDBObject = {};
         let count = 0;
         
         for (const playerData of playersData) {
@@ -136,7 +135,6 @@ async function loadPlayersFromCloud(showUI = false) {
                 syncMessage.textContent = `Downloading ${playerData.name} (${count}/${playersData.length})...`;
             }
             
-            // Download videos and store in IndexedDB
             const fours = [];
             for (const four of (playerData.fours || [])) {
                 if (four.videoUrl) {
@@ -188,12 +186,10 @@ async function loadPlayersFromCloud(showUI = false) {
 
             cloudPlayers.push(player);
             
-            // Also prepare for localStorage (using name as key)
             const playerKey = playerData.name.toLowerCase().replace(/\s+/g, "");
             playersDBObject[playerKey] = player;
         }
 
-        // Save to localStorage to replace local data
         if (cloudPlayers.length > 0) {
             localStorage.setItem("playersDB", JSON.stringify(playersDBObject));
             console.log(`✓ Saved ${cloudPlayers.length} players to localStorage`);
@@ -227,7 +223,6 @@ async function syncToSupabase(showUI = false) {
         syncMessage.textContent = 'Preparing to sync...';
     }
 
-    // 1. Get local data
     const localPlayers = JSON.parse(localStorage.getItem("playersDB")) || {};
     const playerArray = Object.values(localPlayers);
 
@@ -246,7 +241,6 @@ async function syncToSupabase(showUI = false) {
         syncMessage.textContent = `Syncing ${playerArray.length} players...`;
     }
 
-    // Fetch existing cloud data to merge
     const { data: existingPlayers } = await window.supabaseClient
         .from('players')
         .select('*');
@@ -268,7 +262,6 @@ async function syncToSupabase(showUI = false) {
             const existingPlayer = existingPlayersMap[p.name];
             let imageUrl = existingPlayer ? existingPlayer.image : null;
 
-            // A. Upload Profile Image only if new or changed
             if (!existingPlayer || p.image !== existingPlayer.image) {
                 const imageFileName = `${p.name}_${Date.now()}_profile.jpg`;
                 const imageBlob = await fetch(p.image).then(res => res.blob());
@@ -288,16 +281,13 @@ async function syncToSupabase(showUI = false) {
                 }
             }
 
-            // B. Merge existing videos with new ones
             let existingFours = existingPlayer ? (existingPlayer.fours || []) : [];
             let existingSixes = existingPlayer ? (existingPlayer.sixes || []) : [];
 
-            // C. Upload new videos (Fours and Sixes)
             for (let type of ['fours', 'sixes']) {
                 for (let vid of (p[type] || [])) {
                     const base64Vid = await VideoDB.get(vid.video);
                     if (base64Vid) {
-                        // Check if this video already exists (by over.ball combination)
                         const existingVideos = type === 'fours' ? existingFours : existingSixes;
                         const alreadyExists = existingVideos.some(v => v.over === vid.over && v.ball === vid.ball);
                         
@@ -334,7 +324,6 @@ async function syncToSupabase(showUI = false) {
                 }
             }
 
-            // D. Prepare the Player Object with merged data
             const cloudPlayer = {
                 name: p.name,
                 image: imageUrl,
@@ -346,9 +335,7 @@ async function syncToSupabase(showUI = false) {
                 sixes: existingSixes
             };
 
-            // E. Upsert (Insert or Update) to Supabase Database
             if (existingPlayer) {
-                // Update existing player
                 const { error: updateError } = await window.supabaseClient
                     .from('players')
                     .update(cloudPlayer)
@@ -361,7 +348,6 @@ async function syncToSupabase(showUI = false) {
                     successCount++;
                 }
             } else {
-                // Insert new player
                 const { error: insertError } = await window.supabaseClient
                     .from('players')
                     .insert([cloudPlayer]);
@@ -379,7 +365,7 @@ async function syncToSupabase(showUI = false) {
         }
     }
 
-    console.log("✓ Sync Complete! Check your Supabase Dashboard.");
+    console.log("✓ Sync Complete!");
     
     if (showUI) {
         syncMessage.textContent = `✓ Synced ${successCount}/${playerArray.length} players!`;
@@ -431,15 +417,13 @@ function mergeMatchDataIntoPlayersDB() {
     
     let hasUpdates = false;
     
-    // Iterate through match data and merge into playersDB
     for (let playerKey in matchData) {
         if (playerKey === 'overs' || playerKey === 'totalballs' || playerKey === 'totalruns' || playerKey === 'wicket') {
-            continue; // Skip match metadata
+            continue;
         }
         
         const matchPlayerData = matchData[playerKey];
         
-        // Find the player in playersDB (case-insensitive name matching)
         let foundPlayer = null;
         for (let dbKey in playersDB) {
             if (dbKey.toLowerCase() === playerKey.toLowerCase()) {
@@ -449,24 +433,20 @@ function mergeMatchDataIntoPlayersDB() {
         }
         
         if (foundPlayer && matchPlayerData) {
-            // Update stats
             if (matchPlayerData.runs > 0 || matchPlayerData.balls > 0) {
                 foundPlayer.runs = (foundPlayer.runs || 0) + (matchPlayerData.runs || 0);
                 foundPlayer.balls = (foundPlayer.balls || 0) + (matchPlayerData.balls || 0);
                 foundPlayer.matches = (foundPlayer.matches || 0) + 1;
                 
-                // Update high score if current score is higher
                 if (matchPlayerData.runs > (foundPlayer.highScore || 0)) {
                     foundPlayer.highScore = matchPlayerData.runs;
                 }
                 
-                // Merge fours videos
                 if (matchPlayerData.fours && matchPlayerData.fours.length > 0) {
                     foundPlayer.fours = foundPlayer.fours || [];
                     foundPlayer.fours.push(...matchPlayerData.fours);
                 }
                 
-                // Merge sixes videos
                 if (matchPlayerData.sixes && matchPlayerData.sixes.length > 0) {
                     foundPlayer.sixes = foundPlayer.sixes || [];
                     foundPlayer.sixes.push(...matchPlayerData.sixes);
@@ -478,12 +458,9 @@ function mergeMatchDataIntoPlayersDB() {
         }
     }
     
-    // Save updated playersDB back to localStorage
     if (hasUpdates) {
         localStorage.setItem("playersDB", JSON.stringify(playersDB));
         console.log("✓ Match data merged into playersDB");
-        
-        // Clear matchData after successful merge
         localStorage.removeItem("matchData");
         console.log("✓ Match data cleared");
     }
@@ -492,6 +469,444 @@ function mergeMatchDataIntoPlayersDB() {
 }
 
 let players = [];
+
+/* ==========================================================================
+   SWIPEABLE SECTION — Squad ↔ Rankings
+   ========================================================================== */
+
+let sectionIndex = 0; // 0 = Squad, 1 = Rankings
+let touchStartX = 0;
+let touchStartY = 0;
+let isDraggingSection = false;
+
+function initSectionSwipe() {
+    const wrapper = document.getElementById('swipeable-section-wrapper');
+    if (!wrapper) return;
+
+    wrapper.addEventListener('touchstart', (e) => {
+        touchStartX = e.touches[0].clientX;
+        touchStartY = e.touches[0].clientY;
+        isDraggingSection = false;
+    }, { passive: true });
+
+    wrapper.addEventListener('touchmove', (e) => {
+        const dx = e.touches[0].clientX - touchStartX;
+        const dy = e.touches[0].clientY - touchStartY;
+        if (!isDraggingSection && Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 10) {
+            isDraggingSection = true;
+        }
+    }, { passive: true });
+
+    wrapper.addEventListener('touchend', (e) => {
+        if (!isDraggingSection) return;
+        const dx = e.changedTouches[0].clientX - touchStartX;
+        if (Math.abs(dx) > 50) {
+            if (dx < 0 && sectionIndex === 0) switchSection(1);
+            else if (dx > 0 && sectionIndex === 1) switchSection(0);
+        }
+        isDraggingSection = false;
+    }, { passive: true });
+}
+
+function switchSection(index) {
+    sectionIndex = index;
+
+    const squadPanel  = document.getElementById('squad-panel');
+    const rankPanel   = document.getElementById('rankings-panel');
+    const dot0        = document.getElementById('sec-dot-0');
+    const dot1        = document.getElementById('sec-dot-1');
+    const tabSquad    = document.getElementById('tab-squad');
+    const tabRankings = document.getElementById('tab-rankings');
+
+    if (sectionIndex === 0) {
+        squadPanel.style.transform  = 'translateX(0%)';
+        rankPanel.style.transform   = 'translateX(100%)';
+        dot0.classList.add('w-8', 'bg-emerald-400');
+        dot0.classList.remove('w-3', 'bg-white/30');
+        dot1.classList.remove('w-8', 'bg-emerald-400');
+        dot1.classList.add('w-3', 'bg-white/30');
+        tabSquad.classList.add('text-white', 'border-b-2', 'border-emerald-400');
+        tabSquad.classList.remove('text-white/40');
+        tabRankings.classList.remove('text-white', 'border-b-2', 'border-emerald-400');
+        tabRankings.classList.add('text-white/40');
+    } else {
+        squadPanel.style.transform  = 'translateX(-100%)';
+        rankPanel.style.transform   = 'translateX(0%)';
+        dot1.classList.add('w-8', 'bg-emerald-400');
+        dot1.classList.remove('w-3', 'bg-white/30');
+        dot0.classList.remove('w-8', 'bg-emerald-400');
+        dot0.classList.add('w-3', 'bg-white/30');
+        tabRankings.classList.add('text-white', 'border-b-2', 'border-emerald-400');
+        tabRankings.classList.remove('text-white/40');
+        tabSquad.classList.remove('text-white', 'border-b-2', 'border-emerald-400');
+        tabSquad.classList.add('text-white/40');
+    }
+}
+
+/* ==========================================================================
+   PLAYER PROFILE MODAL
+   ========================================================================== */
+
+async function openPlayerProfile(playerIndex) {
+    const player = players[playerIndex];
+    if (!player) return;
+
+    clearInterval(autoPlayTimer);
+
+    const modal = document.getElementById('player-profile-modal');
+    const content = document.getElementById('player-profile-content');
+
+    // Calculate stats
+    const sr = player.balls > 0 ? ((player.runs / player.balls) * 100).toFixed(1) : '0.0';
+    const avg = player.matches > 0 ? (player.runs / player.matches).toFixed(1) : '0.0';
+    const totalBoundaries = (player.fours || []).length + (player.sixes || []).length;
+
+    // Load video sources
+    const foursVideos = [];
+    for (const v of (player.fours || [])) {
+        const src = await VideoDB.get(v.video).catch(() => null);
+        if (src) foursVideos.push({ src, over: v.over, ball: v.ball, type: '4' });
+    }
+    const sixesVideos = [];
+    for (const v of (player.sixes || [])) {
+        const src = await VideoDB.get(v.video).catch(() => null);
+        if (src) sixesVideos.push({ src, over: v.over, ball: v.ball, type: '6' });
+    }
+    const allVideos = [...foursVideos, ...sixesVideos];
+
+    const hasVideos = allVideos.length > 0;
+
+    content.innerHTML = `
+        <!-- Hero Banner -->
+        <div class="relative h-52 overflow-hidden rounded-t-2xl">
+            <img src="${player.image}" alt="${player.name}" class="w-full h-full object-cover scale-110" style="filter: blur(2px) brightness(0.5);">
+            <div class="absolute inset-0 bg-gradient-to-t from-[#0a0e27] via-[#0a0e2780] to-transparent"></div>
+            
+            <!-- Close -->
+            <button onclick="closePlayerProfile()" class="absolute top-4 right-4 bg-black/50 hover:bg-black/70 backdrop-blur-md text-white w-9 h-9 rounded-full flex items-center justify-center border border-white/20 transition-all z-10">
+                <i data-lucide="x" class="w-4 h-4"></i>
+            </button>
+
+            <!-- Player avatar -->
+            <div class="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2">
+                <div class="w-24 h-24 rounded-full border-4 border-emerald-400 overflow-hidden shadow-2xl shadow-emerald-500/40">
+                    <img src="${player.image}" alt="${player.name}" class="w-full h-full object-cover">
+                </div>
+            </div>
+        </div>
+
+        <!-- Player Name -->
+        <div class="pt-16 pb-4 px-5 text-center">
+            <h2 class="text-2xl font-black text-white tracking-tight">${player.name}</h2>
+            <p class="text-emerald-400 text-sm font-semibold mt-1">${player.matches} Match${player.matches !== 1 ? 'es' : ''} Played</p>
+        </div>
+
+        <!-- Stats Grid -->
+        <div class="px-5 grid grid-cols-4 gap-2 mb-5">
+            <div class="stat-box rounded-xl p-3 text-center">
+                <div class="text-lg font-black text-emerald-400">${player.runs}</div>
+                <div class="text-[10px] text-white/50 font-medium uppercase tracking-wide">Runs</div>
+            </div>
+            <div class="stat-box rounded-xl p-3 text-center">
+                <div class="text-lg font-black text-blue-400">${player.highScore}</div>
+                <div class="text-[10px] text-white/50 font-medium uppercase tracking-wide">H.Score</div>
+            </div>
+            <div class="stat-box rounded-xl p-3 text-center">
+                <div class="text-lg font-black text-amber-400">${sr}</div>
+                <div class="text-[10px] text-white/50 font-medium uppercase tracking-wide">S.Rate</div>
+            </div>
+            <div class="stat-box rounded-xl p-3 text-center">
+                <div class="text-lg font-black text-purple-400">${avg}</div>
+                <div class="text-[10px] text-white/50 font-medium uppercase tracking-wide">Avg</div>
+            </div>
+        </div>
+
+        <!-- Boundary summary -->
+        <div class="px-5 grid grid-cols-2 gap-3 mb-5">
+            <div class="bg-gradient-to-br from-emerald-500/20 to-emerald-700/10 border border-emerald-500/30 rounded-xl p-3 flex items-center gap-3">
+                <div class="w-10 h-10 rounded-lg bg-emerald-500/20 flex items-center justify-center text-xl font-black text-emerald-300">4</div>
+                <div>
+                    <div class="text-xl font-black text-white">${foursVideos.length}</div>
+                    <div class="text-xs text-white/50">Fours</div>
+                </div>
+            </div>
+            <div class="bg-gradient-to-br from-blue-500/20 to-blue-700/10 border border-blue-500/30 rounded-xl p-3 flex items-center gap-3">
+                <div class="w-10 h-10 rounded-lg bg-blue-500/20 flex items-center justify-center text-xl font-black text-blue-300">6</div>
+                <div>
+                    <div class="text-xl font-black text-white">${sixesVideos.length}</div>
+                    <div class="text-xs text-white/50">Sixes</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Compilation Download Button -->
+        ${hasVideos ? `
+        <div class="px-5 mb-5">
+            <button id="compile-btn" onclick="downloadCompilation(${playerIndex})"
+                class="w-full bg-gradient-to-r from-rose-500 to-pink-600 text-white py-3.5 rounded-xl font-bold text-sm shadow-lg shadow-rose-500/30 hover:shadow-xl hover:shadow-rose-500/40 transition-all active:scale-95 flex items-center justify-center gap-2 border border-rose-400/20">
+                <i data-lucide="film" class="w-5 h-5"></i>
+                <span>DOWNLOAD HIGHLIGHT REEL</span>
+                <span class="text-xs opacity-70 font-normal">(≤30s)</span>
+            </button>
+            <p class="text-center text-white/30 text-xs mt-2">Stitches all available clips into one video</p>
+        </div>
+        ` : ''}
+
+        <!-- Videos Section -->
+        <div class="px-5 pb-6">
+            <div class="flex items-center gap-2 mb-3">
+                <i data-lucide="video" class="text-emerald-400 w-4 h-4"></i>
+                <h3 class="text-sm font-bold text-white uppercase tracking-wide">Highlight Clips</h3>
+                <span class="text-xs text-white/40 font-medium">${allVideos.length} clips</span>
+            </div>
+
+            ${allVideos.length === 0 ? `
+            <div class="text-center text-white/30 py-8">
+                <i data-lucide="video-off" class="w-10 h-10 mx-auto mb-2"></i>
+                <p class="text-sm">No video clips yet</p>
+            </div>
+            ` : `
+            <div class="grid grid-cols-2 gap-2.5">
+                ${allVideos.map((v, i) => `
+                <div onclick="playVideo('${v.src}')" class="cursor-pointer group relative rounded-xl overflow-hidden bg-black/50 border border-white/10 hover:border-emerald-400/50 transition-all video-hover">
+                    <video src="${v.src}" class="w-full h-28 object-cover" muted preload="metadata"></video>
+                    <div class="absolute inset-0 bg-black/40 group-hover:bg-black/20 transition-all flex items-center justify-center">
+                        <div class="w-9 h-9 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center border border-white/30 group-hover:scale-110 transition-transform">
+                            <i data-lucide="play" class="w-4 h-4 text-white fill-white ml-0.5"></i>
+                        </div>
+                    </div>
+                    <div class="absolute top-2 right-2 px-2 py-0.5 rounded-md text-xs font-black ${v.type === '6' ? 'bg-blue-500' : 'bg-emerald-500'} text-white shadow">
+                        ${v.type === '6' ? 'SIX' : 'FOUR'}
+                    </div>
+                    <div class="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/80 to-transparent">
+                        <p class="text-white/80 text-xs font-medium">Over ${v.over}.${v.ball}</p>
+                    </div>
+                </div>
+                `).join('')}
+            </div>
+            `}
+        </div>
+    `;
+
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+    // Animate in
+    requestAnimationFrame(() => {
+        modal.querySelector('.profile-sheet').classList.remove('translate-y-full');
+        modal.querySelector('.profile-sheet').classList.add('translate-y-0');
+    });
+
+    lucide.createIcons();
+}
+
+function closePlayerProfile() {
+    const modal = document.getElementById('player-profile-modal');
+    const sheet = modal.querySelector('.profile-sheet');
+    sheet.classList.add('translate-y-full');
+    sheet.classList.remove('translate-y-0');
+    setTimeout(() => {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }, 350);
+    startTimer();
+}
+
+/* ==========================================================================
+   VIDEO COMPILATION DOWNLOAD
+   ========================================================================== */
+
+async function downloadCompilation(playerIndex) {
+    const player = players[playerIndex];
+    if (!player) return;
+
+    const btn = document.getElementById('compile-btn');
+    if (btn) {
+        btn.innerHTML = `
+            <div class="spinner" style="width:18px;height:18px;border-width:2px;border-top-color:white;"></div>
+            <span>Building compilation...</span>
+        `;
+        btn.disabled = true;
+    }
+
+    try {
+        // Gather all video blobs
+        const allVids = [];
+        for (const v of (player.fours || [])) {
+            const src = await VideoDB.get(v.video).catch(() => null);
+            if (src) allVids.push(src);
+        }
+        for (const v of (player.sixes || [])) {
+            const src = await VideoDB.get(v.video).catch(() => null);
+            if (src) allVids.push(src);
+        }
+
+        if (allVids.length === 0) {
+            alert('No videos found for this player.');
+            return;
+        }
+
+        // Convert base64 to blobs and figure out how many clips fit in ≤30s
+        // We use MediaRecorder to stitch video elements in sequence
+        const MAX_DURATION = 29; // seconds target
+
+        // Probe durations by loading videos
+        const videoElements = [];
+        for (const src of allVids) {
+            const vid = document.createElement('video');
+            vid.src = src;
+            vid.muted = true;
+            await new Promise(res => {
+                vid.onloadedmetadata = res;
+                vid.onerror = res;
+            });
+            videoElements.push({ el: vid, src, duration: vid.duration || 3 });
+        }
+
+        // Select clips that fit within 30s
+        let totalDuration = 0;
+        const selectedVids = [];
+        for (const v of videoElements) {
+            if (totalDuration + v.duration > MAX_DURATION) {
+                // Try to trim or skip
+                if (selectedVids.length === 0) {
+                    selectedVids.push(v); // At least one clip
+                }
+                break;
+            }
+            selectedVids.push(v);
+            totalDuration += v.duration;
+        }
+
+        if (btn) btn.innerHTML = `<div class="spinner" style="width:18px;height:18px;border-width:2px;border-top-color:white;"></div><span>Recording clips (0/${selectedVids.length})...</span>`;
+
+        // Create an offscreen canvas for compositing
+        const WIDTH = 640;
+        const HEIGHT = 360;
+        const canvas = document.createElement('canvas');
+        canvas.width = WIDTH;
+        canvas.height = HEIGHT;
+        const ctx = canvas.getContext('2d');
+
+        // Setup MediaRecorder
+        const stream = canvas.captureStream(30);
+        const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9') 
+            ? 'video/webm;codecs=vp9' 
+            : 'video/webm';
+        const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 2_000_000 });
+        const chunks = [];
+        recorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+
+        recorder.start(100);
+
+        // Draw a "intro" frame
+        ctx.fillStyle = '#0a0e27';
+        ctx.fillRect(0, 0, WIDTH, HEIGHT);
+        ctx.fillStyle = '#10b981';
+        ctx.font = 'bold 32px Inter, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(player.name, WIDTH / 2, HEIGHT / 2 - 10);
+        ctx.fillStyle = 'rgba(255,255,255,0.6)';
+        ctx.font = '18px Inter, sans-serif';
+        ctx.fillText('Highlight Reel', WIDTH / 2, HEIGHT / 2 + 30);
+        await sleep(800);
+
+        // Draw each video clip
+        for (let i = 0; i < selectedVids.length; i++) {
+            const { el: vid } = selectedVids[i];
+
+            if (btn) {
+                btn.innerHTML = `<div class="spinner" style="width:18px;height:18px;border-width:2px;border-top-color:white;"></div><span>Recording clip ${i + 1}/${selectedVids.length}...</span>`;
+            }
+
+            vid.currentTime = 0;
+            vid.playbackRate = 1;
+            vid.muted = true;
+            await vid.play().catch(() => {});
+
+            await new Promise((resolve) => {
+                const drawFrame = () => {
+                    if (vid.ended || vid.paused) {
+                        resolve();
+                        return;
+                    }
+                    ctx.drawImage(vid, 0, 0, WIDTH, HEIGHT);
+                    // Overlay badge
+                    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+                    ctx.fillRect(0, HEIGHT - 36, WIDTH, 36);
+                    ctx.fillStyle = 'white';
+                    ctx.font = 'bold 14px Inter, sans-serif';
+                    ctx.textAlign = 'left';
+                    ctx.fillText(`${player.name} — Over ${selectedVids[i]?.el?.dataset?.over || ''}`, 12, HEIGHT - 12);
+                    ctx.font = '12px Inter, sans-serif';
+                    ctx.textAlign = 'right';
+                    ctx.fillText(`${i + 1}/${selectedVids.length}`, WIDTH - 12, HEIGHT - 12);
+                    requestAnimationFrame(drawFrame);
+                };
+                requestAnimationFrame(drawFrame);
+                vid.onended = () => resolve();
+                // Safety timeout
+                setTimeout(resolve, (vid.duration + 0.5) * 1000);
+            });
+
+            vid.pause();
+
+            // Brief flash between clips
+            if (i < selectedVids.length - 1) {
+                ctx.fillStyle = '#0a0e27';
+                ctx.fillRect(0, 0, WIDTH, HEIGHT);
+                await sleep(300);
+            }
+        }
+
+        // Outro frame
+        ctx.fillStyle = '#0a0e27';
+        ctx.fillRect(0, 0, WIDTH, HEIGHT);
+        ctx.fillStyle = '#10b981';
+        ctx.font = 'bold 28px Inter, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('Cricket Pro', WIDTH / 2, HEIGHT / 2);
+        await sleep(600);
+
+        recorder.stop();
+
+        await new Promise(resolve => recorder.onstop = resolve);
+
+        const blob = new Blob(chunks, { type: mimeType });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${player.name.replace(/\s+/g, '_')}_highlights.webm`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
+
+        if (btn) {
+            btn.innerHTML = `<i data-lucide="check-circle" class="w-5 h-5"></i><span>Downloaded!</span>`;
+            btn.disabled = false;
+            lucide.createIcons();
+            setTimeout(() => {
+                if (btn) {
+                    btn.innerHTML = `<i data-lucide="film" class="w-5 h-5"></i><span>DOWNLOAD HIGHLIGHT REEL</span><span class="text-xs opacity-70 font-normal">(≤30s)</span>`;
+                    btn.disabled = false;
+                    lucide.createIcons();
+                }
+            }, 3000);
+        }
+
+    } catch (err) {
+        console.error('Compilation failed:', err);
+        alert('Compilation failed: ' + err.message);
+        if (btn) {
+            btn.innerHTML = `<i data-lucide="film" class="w-5 h-5"></i><span>DOWNLOAD HIGHLIGHT REEL</span><span class="text-xs opacity-70 font-normal">(≤30s)</span>`;
+            btn.disabled = false;
+            lucide.createIcons();
+        }
+    }
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
 
 /* ==========================================================================
    RENDER
@@ -524,9 +939,7 @@ function renderLeaderboard() {
         return;
     }
 
-    // Calculate composite score for each player
-    // Formula: (Strike Rate * 0.4) + (High Score * 0.3) + (Runs/Ball * 30) + (Matches * 2)
-    const rankedPlayers = players.map(player => {
+    const rankedPlayers = players.map((player, originalIndex) => {
         const strikeRate = player.balls > 0 ? ((player.runs / player.balls) * 100) : 0;
         const runsPerBall = player.balls > 0 ? (player.runs / player.balls) : 0;
         const compositeScore = (
@@ -539,7 +952,8 @@ function renderLeaderboard() {
         return {
             ...player,
             strikeRate: strikeRate.toFixed(2),
-            compositeScore: compositeScore.toFixed(2)
+            compositeScore: compositeScore.toFixed(2),
+            originalIndex
         };
     }).sort((a, b) => b.compositeScore - a.compositeScore);
 
@@ -564,7 +978,7 @@ function renderLeaderboard() {
         const runsPerBall = player.balls > 0 ? (player.runs / player.balls).toFixed(2) : '0.00';
 
         container.innerHTML += `
-            <div class="player-card-bg rounded-xl p-4 flex items-center gap-4 hover:bg-white/5 transition-all">
+            <div onclick="openPlayerProfile(${player.originalIndex})" class="player-card-bg rounded-xl p-4 flex items-center gap-4 hover:bg-white/5 transition-all cursor-pointer active:scale-[0.98]">
                 <div class="${rankBg} ${rankColor} w-12 h-12 rounded-lg flex items-center justify-center font-black text-xl">
                     ${rank === 1 ? `<i data-lucide="${rankIcon}" class="w-6 h-6"></i>` : rank}
                 </div>
@@ -596,7 +1010,6 @@ function renderCards() {
     container.innerHTML = '';
 
     if (players.length === 0) {
-        // Show empty state
         container.innerHTML = `
             <div class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-center">
                 <div class="text-white/40 mb-2">
@@ -624,21 +1037,25 @@ function renderCards() {
         else if (isPrev)   classes += 'z-20 scale-90 opacity-60 -translate-x-8 translate-y-4';
         else               classes += 'z-10 scale-75 opacity-0';
 
-        // Display runs/balls format like "20/6"
         const runsAndBalls = `${player.runs || 0}/${player.balls || 0}`;
-        
-        // Ensure strike rate is properly calculated
         const strikeRate = player.balls > 0 ? ((player.runs / player.balls) * 100).toFixed(2) : '0.00';
 
         container.innerHTML += `
             <div class="${classes}" style="width: 90%; max-width: 320px;">
-                <div class="player-card-bg rounded-2xl shadow-2xl overflow-hidden">
+                <div class="player-card-bg rounded-2xl shadow-2xl overflow-hidden cursor-pointer active:scale-95 transition-transform"
+                     onclick="${isActive ? `openPlayerProfile(${index})` : ''}">
                     <div class="player-card-img relative h-48">
                         <img src="${player.image}" alt="${player.name}" class="w-full h-full object-cover">
                         <div class="absolute top-3 right-3 bg-emerald-500 text-white px-2.5 py-1 rounded-lg font-bold text-xs flex items-center gap-1 shadow-lg">
                             <i data-lucide="zap" class="w-3.5 h-3.5"></i>
                             ACTIVE
                         </div>
+                        ${isActive ? `
+                        <div class="absolute bottom-3 right-3 bg-white/10 backdrop-blur-md text-white px-2.5 py-1 rounded-lg font-semibold text-xs flex items-center gap-1 border border-white/20">
+                            <i data-lucide="expand" class="w-3 h-3"></i>
+                            TAP TO VIEW
+                        </div>
+                        ` : ''}
                     </div>
                     <div class="p-4">
                         <h3 class="text-xl font-black text-white mb-3">${player.name}</h3>
@@ -724,7 +1141,6 @@ async function renderVideos() {
 
     const currentPlayer = players[currentCard];
 
-    // Update tab button styles
     const tabFours = document.getElementById('tab-fours');
     const tabSixes = document.getElementById('tab-sixes');
 
@@ -899,7 +1315,6 @@ submitAddBtn.addEventListener('click', () => {
 
     players.push(newPlayer);
 
-    // Save to localStorage
     const playersDB = JSON.parse(localStorage.getItem("playersDB")) || {};
     const playerKey = name.toLowerCase().replace(/\s+/g, "");
     playersDB[playerKey] = newPlayer;
@@ -922,7 +1337,6 @@ document.getElementById('send-online-btn').addEventListener('click', async () =>
         return;
     }
     
-    // Password protection
     const password = prompt('Enter password to sync data online:');
     if (password !== 'zen43') {
         alert('❌ Incorrect password! Data sync cancelled.');
@@ -942,7 +1356,6 @@ document.getElementById('pull-data-btn').addEventListener('click', async () => {
         return;
     }
     
-    // Password protection
     const password = prompt('Enter password to pull data from cloud:');
     if (password !== 'zen83') {
         alert('❌ Incorrect password! Data pull cancelled.');
@@ -953,7 +1366,6 @@ document.getElementById('pull-data-btn').addEventListener('click', async () => {
         return;
     }
     
-    // Clear IndexedDB videos before downloading new ones
     try {
         await VideoDB.clear();
         console.log("✓ Cleared local IndexedDB videos");
@@ -961,7 +1373,6 @@ document.getElementById('pull-data-btn').addEventListener('click', async () => {
         console.error("Error clearing IndexedDB:", err);
     }
     
-    // Download from cloud and replace local data
     players = await loadPlayersFromCloud(true);
     currentCard = 0;
     resetTimer();
@@ -1008,13 +1419,11 @@ document.querySelector("#btn").addEventListener("click", () => {
 window.addEventListener('DOMContentLoaded', async () => {
     console.log("🚀 App initializing...");
     
-    // Merge match data if returning from a match
     const hasMatchUpdates = mergeMatchDataIntoPlayersDB();
     if (hasMatchUpdates) {
         console.log("📊 Match data merged successfully");
     }
     
-    // Wait for Supabase to be ready (but don't require it)
     let attempts = 0;
     while (!window.supabaseReady && attempts < 50) {
         await new Promise(resolve => setTimeout(resolve, 100));
@@ -1027,12 +1436,11 @@ window.addEventListener('DOMContentLoaded', async () => {
         console.log("✓ Supabase initialized - cloud sync available");
     }
 
-    // ALWAYS load from local storage by default (never auto-pull from cloud)
-    console.log("📦 Loading from local storage");
     players = loadPlayers();
     
     console.log(`✓ Loaded ${players.length} players from local storage`);
 
     renderUI();
     startTimer();
+    initSectionSwipe();
 });

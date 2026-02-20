@@ -17,9 +17,8 @@
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     
     <script type="module">
-        // Initialize Supabase
-        const SUPABASE_URL = 'https://yjswkmnvpcqhbyufngob.supabase.co'; // Replace with your Supabase URL
-        const SUPABASE_ANON_KEY = 'sb_publishable_iQvbT_hIQJzF-zTAB4Juiw_KKR8jdJO'; // Replace with your Supabase anon key
+        const SUPABASE_URL = 'https://yjswkmnvpcqhbyufngob.supabase.co';
+        const SUPABASE_ANON_KEY = 'sb_publishable_iQvbT_hIQJzF-zTAB4Juiw_KKR8jdJO';
         
         const { createClient } = supabase;
         window.supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -44,55 +43,38 @@
             transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
         }
         
-        .no-scrollbar::-webkit-scrollbar {
-            display: none;
-        }
-        .no-scrollbar {
-            -ms-overflow-style: none;
-            scrollbar-width: none;
-        }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
         html, body {
             width: 100%;
             overflow-x: hidden;
             background: #0a0e27;
         }
 
-        /* Hero gradient background */
         .hero-bg {
             background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 50%, #0f1629 100%);
             position: relative;
         }
-
         .hero-bg::before {
             content: '';
             position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
+            top: 0; left: 0; right: 0; bottom: 0;
             background: 
                 radial-gradient(circle at 20% 30%, rgba(16, 185, 129, 0.1) 0%, transparent 50%),
                 radial-gradient(circle at 80% 70%, rgba(59, 130, 246, 0.1) 0%, transparent 50%);
             pointer-events: none;
         }
 
-        /* Player card styling */
         .player-card-bg {
             background: linear-gradient(145deg, #1a1f3a 0%, #0f1629 100%);
             border: 2px solid rgba(16, 185, 129, 0.3);
         }
-
-        .player-card-img {
-            position: relative;
-            overflow: hidden;
-        }
-
+        .player-card-img { position: relative; overflow: hidden; }
         .player-card-img::after {
             content: '';
             position: absolute;
-            bottom: 0;
-            left: 0;
-            right: 0;
+            bottom: 0; left: 0; right: 0;
             height: 60%;
             background: linear-gradient(to top, rgba(10, 14, 39, 0.9) 0%, transparent 100%);
         }
@@ -109,47 +91,27 @@
             -webkit-backdrop-filter: blur(12px);
         }
 
-        .video-hover {
-            transition: all 0.3s ease;
-        }
-
+        .video-hover { transition: all 0.3s ease; }
         .video-hover:hover {
             transform: translateY(-4px);
             box-shadow: 0 8px 24px rgba(16, 185, 129, 0.3);
         }
 
-        /* Shimmer effect */
-        .shimmer {
-            position: relative;
-            overflow: hidden;
-        }
-
+        .shimmer { position: relative; overflow: hidden; }
         .shimmer::before {
             content: '';
             position: absolute;
-            top: 0;
-            left: -100%;
-            width: 100%;
-            height: 100%;
+            top: 0; left: -100%; width: 100%; height: 100%;
             background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
             animation: shimmer 3s infinite;
         }
-
-        @keyframes shimmer {
-            0% { left: -100%; }
-            100% { left: 100%; }
-        }
+        @keyframes shimmer { 0% { left: -100%; } 100% { left: 100%; } }
 
         @media (max-height: 750px) {
-            .cards-container-height {
-                height: 340px !important;
-            }
-            #cards-container > div {
-                max-width: 280px !important;
-            }
+            .cards-container-height { height: 340px !important; }
+            #cards-container > div { max-width: 280px !important; }
         }
 
-        /* Loading spinner */
         .spinner {
             border: 3px solid rgba(255, 255, 255, 0.1);
             border-top: 3px solid #10b981;
@@ -158,10 +120,69 @@
             height: 24px;
             animation: spin 1s linear infinite;
         }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+        /* ── Swipeable section ── */
+        .swipeable-outer {
+            overflow: hidden;
+            position: relative;
+        }
+        .swipeable-track {
+            display: flex;
+            width: 200%;
+            transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .swipeable-panel {
+            width: 50%;
+            flex-shrink: 0;
+            transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        /* ── Section tab bar ── */
+        .section-tab {
+            position: relative;
+            padding-bottom: 10px;
+            font-weight: 700;
+            font-size: 0.85rem;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            transition: color 0.2s;
+            cursor: pointer;
+        }
+        .section-tab.active { color: white; }
+        .section-tab.active::after {
+            content: '';
+            position: absolute;
+            bottom: 0; left: 0; right: 0;
+            height: 2px;
+            background: #10b981;
+            border-radius: 2px;
+        }
+        .section-tab:not(.active) { color: rgba(255,255,255,0.4); }
+
+        /* ── Player profile bottom sheet ── */
+        #player-profile-modal {
+            align-items: flex-end;
+        }
+        .profile-sheet {
+            transform: translateY(100%);
+            transition: transform 0.35s cubic-bezier(0.32, 0.72, 0, 1);
+            max-height: 90vh;
+            overflow-y: auto;
+            border-radius: 24px 24px 0 0;
+            background: linear-gradient(145deg, #1a1f3a 0%, #0a0e27 100%);
+            border-top: 2px solid rgba(16, 185, 129, 0.3);
+        }
+        .profile-sheet::-webkit-scrollbar { display: none; }
+        .profile-sheet { scrollbar-width: none; }
+
+        /* Pull handle */
+        .sheet-handle {
+            width: 40px;
+            height: 4px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 2px;
+            margin: 12px auto 0;
         }
     </style>
 </head>
@@ -173,12 +194,8 @@
             <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 shadow-lg shadow-emerald-500/30 mb-4">
                 <i data-lucide="trophy" class="text-white w-8 h-8"></i>
             </div>
-            <h1 class="text-4xl md:text-5xl font-black text-white mb-2 tracking-tight">
-                Cricket Pro
-            </h1>
-            <p class="text-emerald-400 text-sm font-semibold uppercase tracking-wider">
-                Performance Analytics Platform
-            </p>
+            <h1 class="text-4xl md:text-5xl font-black text-white mb-2 tracking-tight">Cricket Pro</h1>
+            <p class="text-emerald-400 text-sm font-semibold uppercase tracking-wider">Performance Analytics Platform</p>
         </div>
     </div>
 
@@ -206,49 +223,75 @@
         </div>
     </div>
 
-    <!-- PLAYER CAROUSEL -->
-    <div class="py-6 px-4">
-        <div class="max-w-md mx-auto -ml-6">
-            <div class="flex items-center justify-between mb-4">
-                <div class="flex items-center gap-2">
-                    <i data-lucide="users" class="text-emerald-400 w-5 h-5"></i>
-                    <h2 class="text-base font-bold text-white uppercase tracking-wide">Your Squad</h2>
-                </div>
-                <div class="text-white/60 text-sm font-medium">
-                    <span id="player-count">0</span> Players
-                </div>
-            </div>
-            
-            <div class="relative">
-                <div id="cards-container" class="relative cards-container-height" style="height: 400px;">
-                    <!-- Player cards rendered by JS -->
-                </div>
-
-                <button id="prev-btn" class="absolute left-0 top-1/2 -translate-y-1/2 bg-white/10 hover:bg-white/20 backdrop-blur-md p-3 rounded-full border border-white/20 z-40 transition-all active:scale-90 cursor-pointer">
-                    <i data-lucide="chevron-left" class="text-white w-6 h-6"></i>
-                </button>
-                <button id="next-btn" class="absolute right-0 top-1/2 -translate-y-1/2 bg-white/10 hover:bg-white/20 backdrop-blur-md p-3 rounded-full border border-white/20 z-40 transition-all active:scale-90 cursor-pointer">
-                    <i data-lucide="chevron-right" class="text-white w-6 h-6"></i>
-                </button>
-
-                <div id="dots-container" class="flex justify-center gap-2 mt-5">
-                    <!-- Dots rendered by JS -->
-                </div>
-            </div>
-        </div>
-    </div>
-    <br>
-
-    <!-- LEADERBOARD SECTION -->
-    <div class="py-6 px-4 border-t border-white/10">
+    <!-- ══════════════════════════════════════════════
+         SWIPEABLE SECTION: SQUAD ↔ RANKINGS
+         ══════════════════════════════════════════════ -->
+    <div class="py-6 px-4" id="swipeable-section-wrapper">
         <div class="max-w-md mx-auto">
-            <div class="flex items-center gap-2 mb-4">
-                <i data-lucide="trophy" class="text-emerald-400 w-5 h-5"></i>
-                <h2 class="text-base font-bold text-white uppercase tracking-wide">Player Rankings</h2>
+
+            <!-- Tab bar -->
+            <div class="flex items-center gap-6 mb-5 border-b border-white/10">
+                <button id="tab-squad" class="section-tab active flex items-center gap-2"
+                    onclick="switchSection(0)">
+                    <i data-lucide="users" class="w-4 h-4"></i>
+                    Your Squad
+                    <span class="ml-1 text-xs font-semibold text-emerald-400 bg-emerald-400/10 px-1.5 py-0.5 rounded-md" id="player-count-badge">0</span>
+                </button>
+                <button id="tab-rankings" class="section-tab flex items-center gap-2"
+                    onclick="switchSection(1)">
+                    <i data-lucide="trophy" class="w-4 h-4"></i>
+                    Rankings
+                </button>
+
+                <!-- Swipe hint -->
+                <div class="ml-auto flex items-center gap-1 text-white/20 text-xs">
+                    <i data-lucide="arrow-left-right" class="w-3 h-3"></i>
+                    <span>swipe</span>
+                </div>
             </div>
-            
-            <div id="leaderboard-list" class="space-y-3">
-                <!-- Leaderboard rendered by JS -->
+
+            <!-- Swipeable panels wrapper -->
+            <div class="swipeable-outer">
+                <div id="swipeable-track" class="swipeable-track">
+
+                    <!-- PANEL 0: SQUAD (player cards) -->
+                    <div id="squad-panel" class="swipeable-panel">
+                        <div class="relative -ml-6">
+                            <div id="cards-container" class="relative cards-container-height" style="height: 400px;">
+                                <!-- Player cards rendered by JS -->
+                            </div>
+
+                            <button id="prev-btn" class="absolute left-0 top-1/2 -translate-y-1/2 bg-white/10 hover:bg-white/20 backdrop-blur-md p-3 rounded-full border border-white/20 z-40 transition-all active:scale-90 cursor-pointer">
+                                <i data-lucide="chevron-left" class="text-white w-6 h-6"></i>
+                            </button>
+                            <button id="next-btn" class="absolute right-0 top-1/2 -translate-y-1/2 bg-white/10 hover:bg-white/20 backdrop-blur-md p-3 rounded-full border border-white/20 z-40 transition-all active:scale-90 cursor-pointer">
+                                <i data-lucide="chevron-right" class="text-white w-6 h-6"></i>
+                            </button>
+
+                            <div id="dots-container" class="flex justify-center gap-2 mt-5"></div>
+                        </div>
+
+                        <!-- Section dots indicator -->
+                        <div class="flex justify-center gap-2 mt-6">
+                            <button id="sec-dot-0" onclick="switchSection(0)" class="h-3 rounded-full transition-all w-8 bg-emerald-400"></button>
+                            <button id="sec-dot-1" onclick="switchSection(1)" class="h-3 rounded-full transition-all w-3 bg-white/30"></button>
+                        </div>
+                    </div>
+
+                    <!-- PANEL 1: RANKINGS -->
+                    <div id="rankings-panel" class="swipeable-panel">
+                        <div id="leaderboard-list" class="space-y-3">
+                            <!-- Leaderboard rendered by JS -->
+                        </div>
+
+                        <!-- Section dots indicator -->
+                        <div class="flex justify-center gap-2 mt-6">
+                            <button id="sec-dot-0b" onclick="switchSection(0)" class="h-3 rounded-full transition-all w-3 bg-white/30"></button>
+                            <button id="sec-dot-1b" onclick="switchSection(1)" class="h-3 rounded-full transition-all w-8 bg-emerald-400"></button>
+                        </div>
+                    </div>
+
+                </div>
             </div>
         </div>
     </div>
@@ -265,29 +308,24 @@
                 <button id="tab-fours" onclick="switchTab('fours')" 
                     class="flex-1 px-4 py-2.5 rounded-xl font-semibold text-sm transition-all bg-gradient-to-r from-emerald-500 to-emerald-600 text-white shadow-lg shadow-emerald-500/30">
                     <span class="flex items-center justify-center gap-1.5">
-                        <span class="text-base">4</span>
-                        <span>FOURS</span>
+                        <span class="text-base">4</span><span>FOURS</span>
                     </span>
                 </button>
                 <button id="tab-sixes" onclick="switchTab('sixes')" 
                     class="flex-1 px-4 py-2.5 rounded-xl font-semibold text-sm transition-all glass-effect text-white/70 border border-white/10 hover:bg-white/10">
                     <span class="flex items-center justify-center gap-1.5">
-                        <span class="text-base">6</span>
-                        <span>SIXES</span>
+                        <span class="text-base">6</span><span>SIXES</span>
                     </span>
                 </button>
             </div>
 
-            <div id="video-grid" class="grid grid-cols-2 gap-3">
-                <!-- Videos rendered by JS -->
-            </div>
+            <div id="video-grid" class="grid grid-cols-2 gap-3"></div>
         </div>
     </div>
 
     <!-- ADD PLAYER SECTION -->
     <div class="py-6 px-4 border-t border-white/10">
         <div class="max-w-md mx-auto">
-            
             <button id="show-add-btn" 
                 class="w-full bg-gradient-to-r from-emerald-500 to-emerald-600 text-white py-3.5 rounded-xl font-bold text-sm shadow-lg shadow-emerald-500/30 hover:shadow-xl hover:shadow-emerald-500/40 transition-all active:scale-95 flex items-center justify-center gap-2 border border-emerald-400/30">
                 <i data-lucide="user-plus" class="w-5 h-5"></i>
@@ -347,8 +385,22 @@
         </div>
     </div>
 
+    <!-- ══════════════════════════════════════════════
+         PLAYER PROFILE MODAL (bottom sheet)
+         ══════════════════════════════════════════════ -->
+    <div id="player-profile-modal" 
+         class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden"
+         onclick="closePlayerProfile()">
+        <div class="profile-sheet w-full max-w-lg mx-auto" onclick="event.stopPropagation()">
+            <div class="sheet-handle"></div>
+            <div id="player-profile-content">
+                <!-- Rendered by JS -->
+            </div>
+        </div>
+    </div>
+
     <!-- Video modal -->
-    <div id="video-modal" class="fixed inset-0 bg-black/95 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden" onclick="closeVideoModal()">
+    <div id="video-modal" class="fixed inset-0 bg-black/95 backdrop-blur-sm z-[60] flex items-center justify-center p-4 hidden" onclick="closeVideoModal()">
         <div class="player-card-bg rounded-xl p-4 max-w-lg w-full shadow-2xl" onclick="event.stopPropagation()">
             <div id="modal-video-wrapper" class="rounded-lg overflow-hidden"></div>
             <button onclick="closeVideoModal()" 
@@ -361,6 +413,75 @@
 
     <script src="pwa-utils.js"></script>
     <script src="index.js"></script>
+
+    <!-- Patch: sync section dots and tab styling to swipeable track -->
+    <script>
+        // Override switchSection to also drive the CSS track
+        const _origSwitch = window.switchSection;
+        window.switchSection = function(index) {
+            const track = document.getElementById('swipeable-track');
+            if (track) {
+                track.style.transform = index === 0 ? 'translateX(0%)' : 'translateX(-50%)';
+            }
+            // sync secondary dots (in rankings panel)
+            const d0b = document.getElementById('sec-dot-0b');
+            const d1b = document.getElementById('sec-dot-1b');
+            if (d0b && d1b) {
+                if (index === 0) {
+                    d0b.className = 'h-3 rounded-full transition-all w-8 bg-emerald-400';
+                    d1b.className = 'h-3 rounded-full transition-all w-3 bg-white/30';
+                } else {
+                    d0b.className = 'h-3 rounded-full transition-all w-3 bg-white/30';
+                    d1b.className = 'h-3 rounded-full transition-all w-8 bg-emerald-400';
+                }
+            }
+            // sync player-count-badge
+            const badge = document.getElementById('player-count-badge');
+            const count = document.getElementById('player-count');
+            if (badge && count) badge.textContent = count.textContent;
+
+            if (_origSwitch) _origSwitch(index);
+        };
+
+        // Patch updatePlayerCount to also update the badge
+        const _origUpdate = window.updatePlayerCount;
+        window.updatePlayerCount = function() {
+            if (_origUpdate) _origUpdate();
+            const badge = document.getElementById('player-count-badge');
+            const count = document.getElementById('player-count');
+            if (badge && count) badge.textContent = count.textContent;
+        };
+
+        // Also init: ensure track starts at correct position
+        document.addEventListener('DOMContentLoaded', () => {
+            const track = document.getElementById('swipeable-track');
+            if (track) track.style.transform = 'translateX(0%)';
+        });
+
+        // Swipe gesture on the whole track
+        let _tx = 0, _ty = 0, _dragging = false;
+        const wrapper = document.getElementById('swipeable-section-wrapper');
+        if (wrapper) {
+            wrapper.addEventListener('touchstart', e => {
+                _tx = e.touches[0].clientX;
+                _ty = e.touches[0].clientY;
+                _dragging = false;
+            }, { passive: true });
+            wrapper.addEventListener('touchmove', e => {
+                const dx = e.touches[0].clientX - _tx;
+                const dy = e.touches[0].clientY - _ty;
+                if (!_dragging && Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 8) _dragging = true;
+            }, { passive: true });
+            wrapper.addEventListener('touchend', e => {
+                if (!_dragging) return;
+                const dx = e.changedTouches[0].clientX - _tx;
+                const curSec = window.sectionIndex || 0;
+                if (dx < -50 && curSec === 0) window.switchSection(1);
+                else if (dx > 50 && curSec === 1) window.switchSection(0);
+                _dragging = false;
+            }, { passive: true });
+        }
+    </script>
 
     <script>
         if ('serviceWorker' in navigator) {
