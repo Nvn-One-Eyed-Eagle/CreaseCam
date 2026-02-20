@@ -87,26 +87,93 @@ function safePause(video) {
     video.pause();
 }
 
-const end = localStorage.getItem("end");
+const end    = localStorage.getItem("end");
 const inning = localStorage.getItem("inning"); // "0", "2", or null
 
-// ✅ FIX: pick the team that JUST batted
-// First inning  → inning is "0" or null → team1 batted
-// Second inning → inning is "2"         → team2 batted
 const team1 = JSON.parse(localStorage.getItem("team1"));
 const team2 = JSON.parse(localStorage.getItem("team2"));
 
+// Pick the team that JUST batted
+// First inning  → inning is "0" or null → team1 batted
+// Second inning → inning is "2"         → team2 batted
 let team;
 if (inning === "2") {
-    team = team2;   // second inning just finished, team2 batted
+    team = team2;
 } else {
-    team = team1;   // first inning just finished, team1 batted
+    team = team1;
 }
 
 console.log("[inning-over] inning =", inning, "| loaded team =", team);
 
+/* ==========================================================================
+   CHASE WIN DETECTION
+   If we are in the 2nd inning, check whether team2 has already beaten team1.
+   This can happen mid-over (ball-by-ball check in script.js redirects here),
+   so we also check on page load to make sure the result banner is correct.
+   ========================================================================== */
+let team2WonChase = false;
+
+if (inning === "2" && team1 && team2) {
+    const t1Runs = team1.totalruns || 0;
+    const t2Runs = team2.totalruns || 0;
+
+    if (t2Runs > t1Runs) {
+        team2WonChase = true;
+        console.log(`[inning-over] Chase won! Team2 ${t2Runs} > Team1 ${t1Runs}`);
+
+        // Mark match as over so the Continue button goes to matchover.html
+        localStorage.setItem("end", "true");
+    }
+}
+
 const container = document.getElementById("highlights");
 
+/* ==========================================================================
+   RESULT BANNER — shown at top when 2nd inning is done
+   ========================================================================== */
+if (inning === "2" && team1 && team2) {
+    const t1Runs = team1.totalruns || 0;
+    const t2Runs = team2.totalruns || 0;
+
+    const banner = document.createElement("div");
+    banner.className = "result-banner";
+
+    let resultHTML = "";
+    if (t2Runs > t1Runs) {
+        // Team 2 wins
+        const margin = t2Runs - t1Runs;
+        const wicketsLeft = Object.keys(team2)
+            .filter(k => typeof team2[k] === "object" && team2[k] !== null && !team2[k].bold)
+            .length;
+        resultHTML = `
+            <div class="result-winner">🏆 Team 2 Win!</div>
+            <div class="result-detail">by ${wicketsLeft} wicket${wicketsLeft !== 1 ? 's' : ''}</div>
+            <div class="result-scores">Team 2: <strong>${t2Runs}</strong> &nbsp;|&nbsp; Team 1: <strong>${t1Runs}</strong></div>
+        `;
+    } else if (t1Runs > t2Runs) {
+        // Team 1 wins
+        const margin = t1Runs - t2Runs;
+        resultHTML = `
+            <div class="result-winner">🏆 Team 1 Win!</div>
+            <div class="result-detail">by ${margin} run${margin !== 1 ? 's' : ''}</div>
+            <div class="result-scores">Team 1: <strong>${t1Runs}</strong> &nbsp;|&nbsp; Team 2: <strong>${t2Runs}</strong></div>
+        `;
+    } else {
+        // Tie
+        resultHTML = `
+            <div class="result-winner">🤝 It's a Tie!</div>
+            <div class="result-detail">Both teams scored ${t1Runs} runs</div>
+            <div class="result-scores">Team 1: <strong>${t1Runs}</strong> &nbsp;|&nbsp; Team 2: <strong>${t2Runs}</strong></div>
+        `;
+    }
+
+    banner.innerHTML = resultHTML;
+    container.parentElement.insertBefore(banner, container);
+}
+
+/* ==========================================================================
+   HIGHLIGHTS RENDER
+   ========================================================================== */
 (async () => {
 
     for (const [name, player] of Object.entries(team)) {
@@ -117,7 +184,7 @@ const container = document.getElementById("highlights");
 
         console.log(`[inning-over] ${name} → fours IDs:`, rawFours.map(e => e.video), "| sixes IDs:", rawSixes.map(e => e.video));
 
-        // ✅ Resolve each ID from IndexedDB
+        // Resolve each ID from IndexedDB
         const foursResolved = [];
         for (const entry of rawFours) {
             const src = await VideoDB.get(entry.video).catch((err) => {
@@ -327,11 +394,19 @@ lightbox.onclick = (e) => {
     if (e.target === lightbox) closeBtn.click();
 };
 
+/* ===== CONTINUE BUTTON =====
+   - After 1st inning → go to match.html (2nd inning)
+   - After 2nd inning (end === "true") → go to matchover.html
+   The "end" flag is also set above when team2 wins the chase.
+   ================================================================= */
 document.querySelector(".continue").addEventListener("click", () => {
     localStorage.setItem("inning", 2);
-    if (end === "true") {
+
+    const isEnd = localStorage.getItem("end");
+    if (isEnd === "true") {
         window.location.href = "matchover.html";
         return;
     }
+
     window.location.href = "match.html";
 });

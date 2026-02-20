@@ -1,6 +1,5 @@
 /* ==========================================================================
    videoStore.js — IndexedDB wrapper for match video storage
-   Include this via <script src="videoStore.js"></script> BEFORE match.js
    ========================================================================== */
 
 const VideoDB = (() => {
@@ -10,77 +9,61 @@ const VideoDB = (() => {
 
     let db = null;
 
-    // Returns a promise that resolves once the DB connection is ready
     function getDB() {
         if (db) return Promise.resolve(db);
-
         return new Promise((resolve, reject) => {
             const req = indexedDB.open(DB_NAME, VERSION);
-
             req.onupgradeneeded = (e) => {
                 const database = e.target.result;
                 if (!database.objectStoreNames.contains(STORE)) {
-                    database.createObjectStore(STORE); // key = videoId string
+                    database.createObjectStore(STORE);
                 }
             };
-
             req.onsuccess  = (e) => { db = e.target.result; resolve(db); };
             req.onerror    = (e) => reject(e.target.error);
         });
     }
 
-    // Save a base64 video string, returns the generated ID
     async function save(base64Video) {
         const database = await getDB();
         const id = "vid_" + Date.now() + "_" + Math.random().toString(36).slice(2, 9);
-
         return new Promise((resolve, reject) => {
             const tx   = database.transaction(STORE, "readwrite");
             const store = tx.objectStore(STORE);
             const req  = store.put(base64Video, id);
-
             req.onsuccess = () => resolve(id);
             req.onerror   = (e) => reject(e.target.error);
         });
     }
 
-    // Retrieve a base64 video string by ID
     async function get(id) {
         const database = await getDB();
-
         return new Promise((resolve, reject) => {
             const tx   = database.transaction(STORE, "readonly");
             const store = tx.objectStore(STORE);
             const req  = store.get(id);
-
             req.onsuccess = (e) => resolve(e.target.result || null);
             req.onerror   = (e) => reject(e.target.error);
         });
     }
 
-    // Delete a single video by ID
     async function remove(id) {
         const database = await getDB();
-
         return new Promise((resolve, reject) => {
             const tx   = database.transaction(STORE, "readwrite");
             const store = tx.objectStore(STORE);
             const req  = store.delete(id);
-
             req.onsuccess = () => resolve();
             req.onerror   = (e) => reject(e.target.error);
         });
     }
 
-    // Delete ALL videos (e.g. after match is fully over)
     async function clear() {
         const database = await getDB();
-
         return new Promise((resolve, reject) => {
             const tx   = database.transaction(STORE, "readwrite");
             const store = tx.objectStore(STORE);
             const req  = store.clear();
-
             req.onsuccess = () => resolve();
             req.onerror   = (e) => reject(e.target.error);
         });
@@ -133,9 +116,12 @@ let allset = false;
 let wicketFallen = false;
 
 const inning_score = {};
-let overVideos = [];          // now stores IndexedDB IDs (not base64)
-let lastBallVideoID = null;   // ✅ RENAMED: stores the DB id, not the blob
+let overVideos = [];
+let lastBallVideoID = null;
 let inning = localStorage.getItem("inning");
+
+// Per-over run tracking: snapshot runs/balls at start of each over
+let overStartSnapshot = {}; // { playerName: { runs, balls } }
 
 /* ==========================================================================
    VIDEO RECORDING MODULE
@@ -195,21 +181,18 @@ function startRecording() {
         if (e.data.size) chunks.push(e.data);
     };
 
-    // ✅ CHANGED: save blob to IndexedDB, store only the ID in memory
     recorder.onstop = async () => {
         if (discard) return;
 
         const blob = new Blob(chunks, { type: "video/webm" });
         const base64Video = await blobToBase64(blob);
 
-        // Save to IndexedDB and get back a lightweight ID
         const videoID = await VideoDB.save(base64Video);
 
         lastBallVideoID = videoID;
 
         overVideos.push(videoID);
 
-        // keep only last 6 balls (1 over)
         if (overVideos.length > 6) {
             overVideos.shift();
         }
@@ -288,6 +271,52 @@ function finalizeOutPlayer() {
     }
 }
 
+/**
+ * Take a snapshot of all batsmen's runs + balls at the START of an over.
+ * Called right after the overlay is dismissed (new over begins).
+ */
+function snapshotOverStart() {
+    overStartSnapshot = {};
+    for (const name in players) {
+        const p = players[name];
+        if (typeof p === "object" && p !== null && "runs" in p) {
+            overStartSnapshot[name] = { runs: p.runs, balls: p.balls };
+        }
+    }
+}
+
+/**
+ * Compute how many runs each batsman scored THIS over (since last snapshot).
+ * Returns array of { name, runsThisOver, ballsThisOver, fours, sixes, bold }
+ * sorted by runsThisOver desc.
+ */
+function getThisOverStats() {
+    const result = [];
+    for (const name in players) {
+        const p = players[name];
+        if (typeof p !== "object" || p === null || !("runs" in p)) continue;
+
+        const snap = overStartSnapshot[name] || { runs: 0, balls: 0 };
+        const runsThisOver  = p.runs  - snap.runs;
+        const ballsThisOver = p.balls - snap.balls;
+
+        // Only include players who faced a ball this over
+        if (ballsThisOver > 0 || runsThisOver > 0) {
+            result.push({
+                name,
+                runsThisOver,
+                ballsThisOver,
+                totalRuns:  p.runs,
+                totalBalls: p.balls,
+                fours: p.fours || [],
+                sixes: p.sixes || [],
+                bold:  p.bold  || false
+            });
+        }
+    }
+    return result.sort((a, b) => b.runsThisOver - a.runsThisOver);
+}
+
 /* ==========================================================================
    UI RENDERING FUNCTIONS
    ========================================================================== */
@@ -343,41 +372,77 @@ function renderPlayers() {
 }
 
 function renderOverStats(playersObj) {
+    // Clear previous content
     const content = document.querySelector(".overlay-content");
+    const playerdata = document.querySelector(".playerdata");
     content.innerHTML = "";
-    document.querySelector(".overlay-title").innerText = `Over : ${players.overs}`;
+    playerdata.innerHTML = "";
 
-    // ✅ CHANGED: resolve IDs → base64 asynchronously, then render videos
+    // ── Title: "Over 3" ──
+    document.querySelector(".overlay-title").innerText = `Over ${players.overs}`;
+
+    // ── Videos (larger) ──
     resolveVideoIDs(overVideos).then(base64Videos => {
         content.appendChild(givevids(base64Videos));
         enableAutoSwitch(content);
     });
 
-    const sortedPlayers = getSortedPlayers(playersObj);
+    // ── Per-over stats ──
+    const thisOverStats = getThisOverStats();
 
-    sortedPlayers.forEach(([name, p]) => {
+    // Total runs this over
+    const overRunsTotal = thisOverStats.reduce((sum, p) => sum + p.runsThisOver, 0);
+
+    // Over summary header
+    const summary = document.createElement("div");
+    summary.className = "over-summary";
+    summary.innerHTML = `
+        <span class="over-runs-label">Runs this over:</span>
+        <span class="over-runs-value">${overRunsTotal}</span>
+    `;
+    playerdata.appendChild(summary);
+
+    if (thisOverStats.length === 0) {
+        const empty = document.createElement("div");
+        empty.style.cssText = "color: #94a3b8; font-size: 13px; padding: 8px 4px;";
+        empty.textContent = "No runs scored this over";
+        playerdata.appendChild(empty);
+        return;
+    }
+
+    thisOverStats.forEach(p => {
         const card = document.createElement("div");
         card.className = "player-card";
 
-        card.innerHTML = `
-      <div class="player-row">
-        <span class="player-name">${name.toUpperCase()}</span>
-        <span class="player-score">${p.runs} (${p.balls})</span>
-        <span class="player-status ${p.bold ? "out" : "notout"}">
-          ${p.bold ? "OUT" : "NOT OUT"}
-        </span>
-      </div>
-      <div class="player-meta">
-        <span>4s: ${p.fours.length}</span>
-        <span>6s: ${p.sixes.length}</span>
-      </div>
-    `;
+        // Boundary badges for THIS over
+        const foursThisOver = p.fours.filter(f => {
+            const snap = overStartSnapshot[p.name] || { balls: 0 };
+            return f.ball > snap.balls;
+        }).length;
+        const sixesThisOver = p.sixes.filter(s => {
+            const snap = overStartSnapshot[p.name] || { balls: 0 };
+            return s.ball > snap.balls;
+        }).length;
 
-        document.querySelector(".playerdata").appendChild(card);
+        card.innerHTML = `
+            <div class="player-row">
+                <span class="player-name">${p.name.toUpperCase()}</span>
+                <span class="player-score">${p.runsThisOver} <span style="color:#94a3b8;font-size:13px;font-weight:500">(${p.ballsThisOver}b)</span></span>
+                <span class="player-status ${p.bold ? 'out' : 'notout'}">
+                    ${p.bold ? 'OUT' : 'NOT OUT'}
+                </span>
+            </div>
+            <div class="player-meta">
+                ${foursThisOver > 0 ? `<span>4s: <strong style="color:#10b981">${foursThisOver}</strong></span>` : ''}
+                ${sixesThisOver > 0 ? `<span>6s: <strong style="color:#f59e0b">${sixesThisOver}</strong></span>` : ''}
+                <span style="color:#475569">Total: ${p.totalRuns}(${p.totalBalls})</span>
+            </div>
+        `;
+
+        playerdata.appendChild(card);
     });
 }
 
-// ✅ NEW: batch-resolve an array of video IDs into base64 strings
 async function resolveVideoIDs(ids) {
     const results = [];
     for (const id of ids) {
@@ -387,13 +452,13 @@ async function resolveVideoIDs(ids) {
     return results;
 }
 
-// ✅ CHANGED: now receives resolved base64 array as a parameter
 function givevids(base64Videos) {
     const wrapper = document.createDocumentFragment();
 
     if (!base64Videos || base64Videos.length === 0) {
         const msg = document.createElement("div");
-        msg.innerText = "No video to show";
+        msg.style.cssText = "color:#94a3b8; text-align:center; padding: 20px; font-size:14px;";
+        msg.innerText = "No video recorded this over";
         return msg;
     }
 
@@ -431,13 +496,7 @@ function enableAutoSwitch(container) {
    CORE GAME LOGIC
    ========================================================================== */
 
-// ✅ NEW: strips video blobs from player data before saving to localStorage
-// The fours/sixes arrays keep their ID references (which are tiny strings),
-// so the highlights page can resolve them later from IndexedDB.
 function sanitizeForStorage(teamObj) {
-    // fours and sixes already contain only IDs now (not base64),
-    // so no transformation needed — just return a clean copy.
-    // This function exists as a safety net in case any stale base64 sneaks in.
     const safe = JSON.parse(JSON.stringify(teamObj));
     for (const key in safe) {
         const p = safe[key];
@@ -445,7 +504,7 @@ function sanitizeForStorage(teamObj) {
         if (Array.isArray(p.fours)) {
             p.fours = p.fours.map(entry =>
                 typeof entry === "object" && entry.video && entry.video.length > 100
-                    ? { ...entry, video: "[removed]" }  // fallback strip
+                    ? { ...entry, video: "[removed]" }
                     : entry
             );
         }
@@ -476,13 +535,36 @@ function endInning() {
     if (b === '2') localStorage.setItem("end", true);
 
     if (inningsCompleted === 2 || inningsCompleted === 1) {
-        // ✅ CHANGED: sanitize before writing — keeps localStorage small
         localStorage.setItem("team1", JSON.stringify(sanitizeForStorage(team1)));
         localStorage.setItem("team2", JSON.stringify(sanitizeForStorage(team2)));
 
         window.location.href = "inning-over.html";
         return;
     }
+}
+
+/* ==========================================================================
+   TEAM 2 CHASE DETECTION
+   Checks after every run whether team2 has already surpassed team1's score.
+   Only active during the second inning (inning === '2').
+   ========================================================================== */
+function checkChaseWin() {
+    if (inning !== '2') return false;
+
+    const team1Data = JSON.parse(localStorage.getItem("team1"));
+    const team1Total = team1Data ? (team1Data.totalruns || 0) : 0;
+    const team2Total = players.totalruns || 0;
+
+    if (team2Total > team1Total) {
+        console.log(`Team 2 wins the chase! ${team2Total} > ${team1Total}`);
+
+        // Save and redirect to match over
+        localStorage.setItem("team2", JSON.stringify(sanitizeForStorage(team2)));
+        localStorage.setItem("end", true);
+        window.location.href = "inning-over.html";
+        return true;
+    }
+    return false;
 }
 
 /* ==========================================================================
@@ -516,7 +598,6 @@ document.querySelectorAll(".square, .circle").forEach(btn => {
         batter.runs += run;
         batter.balls++;
 
-        // ✅ CHANGED: store the video ID, not the base64 blob
         if (run === 4 && lastBallVideoID) {
             batter.fours.push({
                 video: lastBallVideoID,
@@ -533,21 +614,21 @@ document.querySelectorAll(".square, .circle").forEach(btn => {
             });
         }
 
+        // ── Chase win check (team 2 only) ──
+        if (checkChaseWin()) return;
+
         const isOddRun = run % 2 === 1;
         const isOverEnd = players.totalballs % 6 === 0;
 
-        // Change strike for odd runs (ONLY if not end of over)
         if (isOddRun && !isOverEnd) {
             [strike.innerText, nonstrike.innerText] =
                 [nonstrike.innerText, strike.innerText];
         }
 
-        // Change strike at end of over (ONLY if even run)
         if (isOverEnd && !isOddRun) {
             [strike.innerText, nonstrike.innerText] =
                 [nonstrike.innerText, strike.innerText];
         }
-
 
         if (players.totalballs % 6 === 0) {
             players.overs++;
@@ -567,26 +648,19 @@ document.querySelectorAll(".square, .circle").forEach(btn => {
         document.querySelector(".display").classList.remove("lock");
     });
 });
-// ---- wide balle button ----//
 
+// ---- Wide ball button ----
 document.querySelector(".wide-btn")?.addEventListener("click", () => {
-    console.log("Wide ball button clicked");
     if (!allset) return;
     butts.classList.add("lock");
     document.getElementById("radialMenu").classList.toggle("active");
-    console.log("test two");
 
-    // Wide ball: do absolutely nothing to score or balls
     status.textContent = "Wide ball";
 
-    // Unlock controls so next ball can be played
     butts.classList.add("lock");
     document.querySelector("#radialBtn").classList.add("lock");
     document.querySelector(".display").classList.remove("lock");
-
-    // No update(), no ball increment, no strike change
 });
-
 
 // --- Scoring: Wicket Button ---
 document.querySelector(".bold-btn").addEventListener("click", () => {
@@ -688,13 +762,16 @@ document.querySelector(".dot-btn")?.addEventListener("click", () => {
     document.querySelector(".display").classList.remove("lock");
 });
 
-// --- Overlay Control ---
+// --- Overlay Control: Continue ---
 document.querySelector("#cont").addEventListener("click", () => {
     document.querySelector("#overlay").classList.remove("activey");
     document.querySelector(".app").classList.remove("lock");
 
     overVideos.length = 0;
-    lastBallVideoID = null;   // ✅ RENAMED
+    lastBallVideoID = null;
+
+    // Snapshot the new over's starting stats
+    snapshotOverStart();
 });
 
 // --- Preview Button ---
@@ -706,7 +783,6 @@ previewBtn.addEventListener("click", async () => {
         return;
     }
 
-    // ✅ CHANGED: resolve IDs before rendering
     const base64Videos = await resolveVideoIDs(overVideos);
 
     base64Videos.forEach(url => {
@@ -721,4 +797,5 @@ previewBtn.addEventListener("click", async () => {
 /* ==========================================================================
    INITIAL RENDER
    ========================================================================== */
+snapshotOverStart(); // baseline snapshot at match start
 renderPlayers();
