@@ -19,13 +19,7 @@ CreaseCam is a **Progressive Web App (PWA)** built for cricket enthusiasts who w
 
 Whether you're scoring an over in the nets or filming a club final, CreaseCam has you covered — **even without an internet connection**.
 
-## Screenshots
-
-<img src="https://raw.githubusercontent.com/Nvn-One-Eyed-Eagle/portfolio/main/assets/creasecam1.png" width="800">
-
-<img src="https://raw.githubusercontent.com/Nvn-One-Eyed-Eagle/portfolio/main/assets/creasecam2.png" width="800">
-
-<img src="https://raw.githubusercontent.com/Nvn-One-Eyed-Eagle/portfolio/main/assets/creasecam3.png" width="800">
+![CreaseCam Home](https://raw.githubusercontent.com/Nvn-One-Eyed-Eagle/portfolio/main/assets/creasecam1.png)
 
 ---
 
